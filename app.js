@@ -4,7 +4,7 @@ const $ = (selector) => document.querySelector(selector);
 const viewport = $("#canvas-viewport"), world = $("#canvas-world"), layer = $("#islands-layer");
 const modal = $("#create-modal"), form = $("#create-form"), titleInput = $("#ranking-title"), descInput = $("#ranking-description"), tagsInput = $("#ranking-tags");
 const detail = $("#ranking-modal"), toast = $("#toast");
-const state = { rankings: [], islands: new Map(), zoom: 1, panX: 0, panY: 0, nextId: 1, dragging: null, panning: null, activeRanking: null, clusterTag: "" };
+const state = { rankings: [], islands: new Map(), zoom: 1, panX: 0, panY: 0, nextId: 1, dragging: null, panning: null, activeRanking: null, clusterTag: "", layoutSeed: 1, simFrame: null };
 const COLORS = ["#b7a7ff","#7ed9c4","#f0be85","#f18ca7","#8ec7f3","#d4a0ef"];
 function showToast(message) { toast.textContent = message; toast.classList.add("visible"); clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.classList.remove("visible"), 2800); }
 function openDialog(d) { if (d.showModal) d.showModal(); else d.setAttribute("open", ""); }
@@ -33,10 +33,11 @@ function preservePositions(groups) {
   const old=state.islands, next=new Map();
   groups.forEach((g,i)=>{
     const prior=old.get(g.key), size=islandSize(g);
-    if(prior){g.x=prior.x;g.y=prior.y;g.vx=prior.vx||0;g.vy=prior.vy||0;g.manual=prior.manual;}
+    if(prior){g.x=prior.x;g.y=prior.y;g.vx=0;g.vy=0;g.manual=prior.manual;}
     else {
-      // Seed new rankings near the existing landscape, then let tag forces settle them.
-      const angle=i*2.399963229728653, radius=groups.length>1?180+Math.sqrt(i)*75:0;
+      // Golden-angle seeds avoid starting every fresh layout in the same line or grid.
+      const angle=(i+state.layoutSeed*0.61803398875)*2.399963229728653;
+      const radius=groups.length>1?210+Math.sqrt(i+1)*110:0;
       g.x=Math.cos(angle)*radius;g.y=Math.sin(angle)*radius;g.vx=0;g.vy=0;g.manual=false;
     }
     g.w=size.w;g.h=size.h;next.set(g.key,g);
@@ -45,47 +46,67 @@ function preservePositions(groups) {
 }
 function simulateLayout() {
   if(state.simFrame) cancelAnimationFrame(state.simFrame);
-  let ticks=0;
   const nodes=[...state.islands.values()];
   if(nodes.length<2)return;
+  let ticks=0;
+  const maxTicks=600;
   function step(){
-    const alpha=Math.max(0.025,1-ticks/240);
+    const alpha=Math.max(0.035,1-ticks/maxTicks);
+    const forces=nodes.map(()=>({x:0,y:0}));
+    // Tag attraction/repulsion is calculated separately from rectangular collision avoidance.
     for(let i=0;i<nodes.length;i++){
       const a=nodes[i];
-      // Manually placed rankings stay pinned but still influence their neighbors.
-      if(!a.manual){a.vx+=(-a.x)*0.0008*alpha;a.vy+=(-a.y)*0.0008*alpha;}
+      if(!a.manual){forces[i].x+=-a.x*0.00032*alpha;forces[i].y+=-a.y*0.00032*alpha;}
       for(let j=i+1;j<nodes.length;j++){
         const b=nodes[j],dx=b.x-a.x,dy=b.y-a.y;
         const dist=Math.max(1,Math.hypot(dx,dy)),ux=dx/dist,uy=dy/dist;
         const shared=a.items[0].tags.filter(t=>b.items[0].tags.some(u=>tagKey(t)===tagKey(u)));
-        const selected=state.clusterTag && shared.some(t=>tagKey(t)===tagKey(state.clusterTag));
+        const selected=!!(state.clusterTag&&shared.some(t=>tagKey(t)===tagKey(state.clusterTag)));
         if(shared.length){
-          const target=selected?365:455;
-          const strength=selected?0.018:0.0065;
+          const target=selected?390:520;
+          const strength=selected?0.022:0.008;
           const force=(dist-target)*strength*alpha;
-          if(!a.manual){a.vx+=ux*force;a.vy+=uy*force;}
-          if(!b.manual){b.vx-=ux*force;b.vy-=uy*force;}
+          forces[i].x+=ux*force;forces[i].y+=uy*force;
+          forces[j].x-=ux*force;forces[j].y-=uy*force;
         } else {
-          const minDist=440, force=Math.max(0,minDist-dist)*0.025*alpha;
-          if(!a.manual){a.vx-=ux*force;a.vy-=uy*force;}
-          if(!b.manual){b.vx+=ux*force;b.vy+=uy*force;}
+          const minDist=480;
+          if(dist<minDist){
+            const force=(minDist-dist)*0.018*alpha;
+            forces[i].x-=ux*force;forces[i].y-=uy*force;
+            forces[j].x+=ux*force;forces[j].y+=uy*force;
+          }
         }
-        // Collision padding prevents boards from overlapping even when several tags attract them.
-        const collision=365-dist;
-        if(collision>0){
-          const force=collision*0.035*alpha;
-          a.vx-=ux*force;a.vy-=uy*force;
-          if(!b.manual){b.vx+=ux*force;b.vy+=uy*force;}
+        // Treat each board as a rectangle, so another board can be pushed out of its path.
+        const overlapX=(a.w+b.w)/2+48-Math.abs(dx);
+        const overlapY=(a.h+b.h)/2+48-Math.abs(dy);
+        if(overlapX>0&&overlapY>0){
+          if(overlapX<overlapY){
+            const sign=dx===0?(i%2?1:-1):Math.sign(dx);
+            const push=(overlapX+2)*0.085*alpha*sign;
+            forces[i].x-=push;forces[j].x+=push;
+          }else{
+            const sign=dy===0?(i%2?1:-1):Math.sign(dy);
+            const push=(overlapY+2)*0.085*alpha*sign;
+            forces[i].y-=push;forces[j].y+=push;
+          }
         }
       }
-      if(!a.manual){a.vx*=0.82;a.vy*=0.82;a.x+=a.vx;a.y+=a.vy;}
     }
+    // Apply accumulated forces together; sequential movement otherwise biases later nodes.
+    nodes.forEach((g,i)=>{
+      if(g.manual){g.vx=0;g.vy=0;return;}
+      g.vx=(g.vx+forces[i].x)*0.72;
+      g.vy=(g.vy+forces[i].y)*0.72;
+      const speed=Math.hypot(g.vx,g.vy),maxSpeed=16;
+      if(speed>maxSpeed){g.vx=g.vx/speed*maxSpeed;g.vy=g.vy/speed*maxSpeed;}
+      g.x+=g.vx;g.y+=g.vy;
+    });
     nodes.forEach(g=>{
       const el=layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]');
       if(el){el.style.left=g.x+"px";el.style.top=g.y+"px";}
     });
     ticks++;
-    if(ticks<240)state.simFrame=requestAnimationFrame(step);
+    if(ticks<maxTicks)state.simFrame=requestAnimationFrame(step);
     else state.simFrame=null;
   }
   state.simFrame=requestAnimationFrame(step);
@@ -140,7 +161,7 @@ function hash(str){let h=0;for(let i=0;i<str.length;i++)h=((h<<5)-h)+str.charCod
 function applyTransform(){world.style.transform="translate("+((viewport.clientWidth/2)+state.panX)+"px,"+((viewport.clientHeight/2)+state.panY)+"px) scale("+state.zoom+")";$("#zoom-level").textContent=Math.round(state.zoom*100)+"%";}
 function screenToWorld(x,y){const rect=viewport.getBoundingClientRect();return {x:(x-rect.left-rect.width/2-state.panX)/state.zoom,y:(y-rect.top-rect.height/2-state.panY)/state.zoom};}
 function setZoom(next, cx=viewport.clientWidth/2, cy=viewport.clientHeight/2){const before=screenToWorld(cx+viewport.getBoundingClientRect().left,cy+viewport.getBoundingClientRect().top);state.zoom=Math.max(.25,Math.min(2.1,next));const rect=viewport.getBoundingClientRect();state.panX=cx-rect.width/2-before.x*state.zoom;state.panY=cy-rect.height/2-before.y*state.zoom;applyTransform();}
-function autoArrange(){state.islands.forEach(g=>g.manual=false);state.islands.clear();render();showToast("Rearranging rankings using tag relationships.");}
+function autoArrange(){state.layoutSeed++;state.islands.forEach(g=>g.manual=false);state.islands.clear();render();showToast("Restarted force layout; rankings are moving around obstacles.");}
 function startPan(e){if(e.button!==0||e.target.closest(".island")||e.target.closest("button"))return;state.panning={x:e.clientX,y:e.clientY,px:state.panX,py:state.panY};viewport.classList.add("panning");viewport.setPointerCapture(e.pointerId);}
 function movePointer(e){if(state.panning){state.panX=state.panning.px+e.clientX-state.panning.x;state.panY=state.panning.py+e.clientY-state.panning.y;applyTransform();}else if(state.dragging){const p=screenToWorld(e.clientX,e.clientY),g=state.islands.get(state.dragging.key);if(!g)return;g.x=p.x-state.dragging.dx;g.y=p.y-state.dragging.dy;const el=layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]');if(el){el.style.left=g.x+"px";el.style.top=g.y+"px";}}}
 function endPointer(){if(state.panning){state.panning=null;viewport.classList.remove("panning");}if(state.dragging){const g=state.islands.get(state.dragging.key);if(g)g.manual=true;const el=layer.querySelector(".island.dragging");if(el)el.classList.remove("dragging");state.dragging=null;render();}}
@@ -156,6 +177,28 @@ $("#auto-arrange").addEventListener("click",autoArrange);
 $("#cluster-tag").addEventListener("change",e=>{state.clusterTag=e.target.value;render();showToast(state.clusterTag?"Emphasizing tag: "+state.clusterTag:"Using all tags equally.");});
 function openCreate(){form.reset();openDialog(modal);setTimeout(()=>titleInput.focus(),30);}
 $("#create-ranking").addEventListener("click",openCreate);$("#empty-create").addEventListener("click",openCreate);
+function addTestSet(){
+  const samples=[
+    {title:"Naruto Characters",description:"Main and supporting characters",tags:["Naruto","Characters","Anime"]},
+    {title:"One Piece Characters",description:"Pirates, marines, and other characters",tags:["One Piece","Characters","Anime"]},
+    {title:"Naruto Openings",description:"Opening themes across the series",tags:["Naruto","Openings","Anime","Music"]},
+    {title:"Naruto Powers",description:"Jutsu, kekkei genkai, and abilities",tags:["Naruto","Powers","Anime"]},
+    {title:"One Piece Powers",description:"Devil fruits, haki, and techniques",tags:["One Piece","Powers","Anime"]},
+    {title:"Best Anime Openings",description:"Cross-series opening comparison",tags:["Openings","Anime","Music"]},
+    {title:"Studio Ghibli Films",description:"A separate topic with a few broad tags",tags:["Anime","Films","Studio Ghibli"]}
+  ];
+  let added=0;
+  samples.forEach(sample=>{
+    if(state.rankings.some(r=>r.title.toLocaleLowerCase()===sample.title.toLocaleLowerCase()))return;
+    state.rankings.push({...sample,id:String(state.nextId++)});added++;
+  });
+  if(!added){showToast("The test set is already loaded. Use Auto arrange to try another layout.");return;}
+  state.layoutSeed++;
+  render();
+  showToast("Added "+added+" test rankings with overlapping tags.");
+}
+$("#add-test-lists").addEventListener("click",addTestSet);
+
 $("#close-modal").addEventListener("click",()=>closeDialog(modal));$("#cancel-modal").addEventListener("click",()=>closeDialog(modal));
 modal.addEventListener("click",e=>{if(e.target===modal)closeDialog(modal);});
 form.addEventListener("submit",e=>{e.preventDefault();const title=titleInput.value.trim();if(!title){titleInput.focus();return;}const id=form.dataset.editId;if(id){const r=state.rankings.find(x=>x.id===id);if(!r)return;r.title=title;r.description=descInput.value.trim();r.tags=cleanTags(tagsInput.value);delete form.dataset.editId;$("#modal-title").textContent="Create a ranking";form.querySelector('[type="submit"]').textContent="Create ranking";closeDialog(modal);render();showToast("Ranking updated. Islands regrouped by tags.");return;}state.rankings.push({id:String(state.nextId++),title,description:descInput.value.trim(),tags:cleanTags(tagsInput.value)});closeDialog(modal);render();showToast("Ranking added to the canvas.");});
