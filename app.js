@@ -33,103 +33,67 @@ function groupRankings() {
 }
 function islandSize(group) { return { w: 320, h: 260 }; }
 function arrangeIslands(groups, animate=true) {
-  if(state.animationFrame) cancelAnimationFrame(state.animationFrame);
-  const width=320,height=260,gap=54;
-  const selected=state.clusterTag;
-  const hasSelected=!!selected;
-  const angleStep=Math.PI*2/144;
-  const sectorCounts=new Array(24).fill(0);
-  const placed=[];
+  if(state.animationFrame)cancelAnimationFrame(state.animationFrame);
+  const gap=54,selected=state.clusterTag,hasSelected=!!selected;
+  const sectors=new Array(24).fill(0),placed=[];
   const variation=Math.max(0,Math.min(1,forces.randomness/100));
-  const centerFirst=groups.find(g=>!hasSelected||g.items[0].tags.some(t=>tagKey(t)===tagKey(selected)));
-  const matching=hasSelected
-    ? groups.filter(g=>g.items[0].tags.some(t=>tagKey(t)===tagKey(selected)))
-    : groups.slice();
-  const nonmatching=hasSelected
-    ? groups.filter(g=>!g.items[0].tags.some(t=>tagKey(t)===tagKey(selected)))
-    : [];
-  // Grow from the center outwards. The irregular radius and angular-sector balancing
-  // create a lumpy island silhouette rather than concentric rings or a spiral.
-  const ordered=[];
-  if(centerFirst) ordered.push(centerFirst);
-  matching.filter(g=>g!==centerFirst).forEach(g=>ordered.push(g));
+  const matches=g=>g.items[0].tags.some(t=>tagKey(t)===tagKey(selected));
+  const matching=hasSelected?groups.filter(matches):groups.slice();
+  const nonmatching=hasSelected?groups.filter(g=>!matches(g)):[];
+  const first=hasSelected?(matching[0]||groups[0]):groups[0],ordered=[];
+  if(first)ordered.push(first);
+  matching.filter(g=>g!==first).forEach(g=>ordered.push(g));
   nonmatching.forEach(g=>ordered.push(g));
   groups.splice(0,groups.length,...ordered);
-
-  function sharedCount(a,b) {
-    const tags=a.items[0].tags;
-    return tags.filter(t=>b.items[0].tags.some(u=>tagKey(t)===tagKey(u))).length;
-  }
-  function intersects(cx,cy,other) {
-    const ox=other.targetX+width/2,oy=other.targetY+height/2;
-    return Math.abs(cx-ox)<width+gap && Math.abs(cy-oy)<height+gap;
-  }
-  function radialDistance(g) {
-    return Math.hypot(g.targetX+width/2,g.targetY+height/2);
-  }
+  const sharedCount=(a,b)=>a.items[0].tags.filter(t=>b.items[0].tags.some(u=>tagKey(t)===tagKey(u))).length;
+  const center=g=>({x:g.targetX+g.w/2,y:g.targetY+g.h/2});
   ordered.forEach((g,index)=>{
-    g.w=width;g.h=height;g.vx=0;g.vy=0;
-    if(index===0) {
-      g.targetX=-width/2;g.targetY=-height/2;g.spawnAngle=0;
-      placed.push(g);return;
-    }
-    const angleOffset=Math.random()*Math.PI*2;
-    const idealRadius=hasSelected && matching.includes(g)
-      ? Math.max(260,Math.sqrt(index)*Math.max(120,forces.coreSpacing*.72))
-      : 340+Math.sqrt(index)*Math.max(190,forces.separation*.34);
+    const el=layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]');
+    g.w=el?Math.max(260,el.offsetWidth):320;
+    g.h=el?Math.max(180,el.offsetHeight):300;
+    g.vx=0;g.vy=0;
+    if(index===0){g.targetX=-g.w/2;g.targetY=-g.h/2;g.spawnAngle=0;placed.push(g);return;}
+    const size=Math.max(g.w,g.h),angleOffset=Math.random()*Math.PI*2;
+    const idealRadius=hasSelected&&matching.includes(g)
+      ?Math.max(390,size*.72)+Math.sqrt(index)*Math.max(150,forces.coreSpacing*.72)
+      :Math.max(430,size*.78)+Math.sqrt(index)*Math.max(190,forces.separation*.34);
     let best=null,bestScore=Infinity;
-    // Test a broad set of directions and slightly different radii. The radial
-    // jitter creates an uneven boundary; sector penalties stop the mass leaning one way.
-    for(let k=0;k<144;k++) {
-      const angle=angleOffset+k*angleStep;
-      for(let radialTry=0;radialTry<5;radialTry++) {
-        const jitter=(Math.random()-.5)*(170+variation*forces.randomness*4);
-        const radius=Math.max(0,idealRadius+jitter+(radialTry-2)*54);
+    for(let k=0;k<180;k++){
+      const angle=angleOffset+k*Math.PI*2/180;
+      const sector=Math.floor((((angle%(Math.PI*2))+(Math.PI*2))%(Math.PI*2))/(Math.PI*2)*sectors.length);
+      for(let r=0;r<6;r++){
+        const jitter=(Math.random()-.5)*(110+variation*forces.randomness*2.5);
+        const radius=Math.max(size,idealRadius+jitter+(r-2.5)*Math.max(42,size*.15));
         const cx=Math.cos(angle)*radius,cy=Math.sin(angle)*radius;
-        let score=0;
-        const sector=Math.floor((((angle%(Math.PI*2))+(Math.PI*2))%(Math.PI*2))/(Math.PI*2)*sectorCounts.length);
-        score+=sectorCounts[sector]*Math.max(120,forces.separation*.28);
-        // Keep the landscape compact, but allow irregular bulges and recesses.
-        score+=Math.abs(radius-idealRadius)*.55;
-        let nearestShared=Infinity,nearestAny=Infinity;
-        let overlapPenalty=0;
-        for(const other of placed) {
-          const ox=other.targetX+width/2,oy=other.targetY+height/2;
-          const dx=cx-ox,dy=cy-oy,dist=Math.max(1,Math.hypot(dx,dy));
-          nearestAny=Math.min(nearestAny,dist);
+        let score=sectors[sector]*Math.max(110,forces.separation*.24)+Math.abs(radius-idealRadius)*.45;
+        let nearest=Infinity,nearestShared=Infinity,overlapPenalty=0;
+        for(const other of placed){
+          const o=center(other),dx=cx-o.x,dy=cy-o.y,dist=Math.max(1,Math.hypot(dx,dy));
+          nearest=Math.min(nearest,dist);
           const shared=sharedCount(g,other);
-          if(shared) nearestShared=Math.min(nearestShared,dist- Math.min(110,shared*28));
-          if(intersects(cx,cy,other)) {
-            const overlapX=width+gap-Math.abs(dx);
-            const overlapY=height+gap-Math.abs(dy);
-            overlapPenalty+=180000+Math.max(0,overlapX)*Math.max(0,overlapY)*3;
-          } else {
+          if(shared)nearestShared=Math.min(nearestShared,dist-Math.min(120,shared*32));
+          const ox=(g.w+other.w)/2+gap-Math.abs(dx),oy=(g.h+other.h)/2+gap-Math.abs(dy);
+          if(ox>0&&oy>0)overlapPenalty+=260000+ox*oy*4;
+          else {
             const desired=shared
-              ? Math.max(width+gap+12,forces.separation*(1-(forces.tagPull/100)*Math.min(1,shared/2)))
-              : Math.max(width+gap+12,forces.separation);
-            score+=Math.max(0,desired-dist)*(shared?1.6:.72);
+              ?Math.max((g.w+other.w)/2+gap+20,forces.separation*(1-(forces.tagPull/100)*Math.min(1,shared/2)))
+              :Math.max((g.w+other.w)/2+gap+20,forces.separation);
+            score+=Math.max(0,desired-dist)*(shared?1.4:.65);
           }
         }
-        if(Number.isFinite(nearestShared)) score+=Math.max(0,nearestShared-(width+gap+25))*Math.max(.18,1-forces.tagPull/120);
-        if(Number.isFinite(nearestAny)) score+=Math.max(0,width+gap+10-nearestAny)*2;
-        score+=overlapPenalty;
-        // A small stable noise term avoids mechanically repeated placements.
-        score+=(Math.random()-.5)*(20+variation*70);
-        if(score<bestScore){bestScore=score;best={x:cx-width/2,y:cy-height/2,angle,sector};}
+        if(Number.isFinite(nearestShared))score+=Math.max(0,nearestShared-(size+gap+35))*Math.max(.15,1-forces.tagPull/125);
+        if(Number.isFinite(nearest))score+=Math.max(0,size+gap-nearest)*1.8;
+        score+=overlapPenalty+(Math.random()-.5)*(18+variation*65);
+        if(score<bestScore){bestScore=score;best={x:cx-g.w/2,y:cy-g.h/2,angle,sector};}
       }
     }
-    if(!best) {
-      const angle=angleOffset+index*2.399963229728653;
-      const radius=idealRadius+index*10;
-      best={x:Math.cos(angle)*radius-width/2,y:Math.sin(angle)*radius-height/2,angle,sector:Math.floor(((angle%(Math.PI*2)+Math.PI*2)%(Math.PI*2))/(Math.PI*2)*sectorCounts.length)};
+    if(!best){
+      const angle=angleOffset+index*2.399963229728653,radius=idealRadius+index*size*.3;
+      best={x:Math.cos(angle)*radius-g.w/2,y:Math.sin(angle)*radius-g.h/2,angle,sector:Math.floor(((angle%(Math.PI*2)+Math.PI*2)%(Math.PI*2))/(Math.PI*2)*sectors.length)};
     }
-    g.targetX=best.x;g.targetY=best.y;g.spawnAngle=best.angle;
-    sectorCounts[best.sector]++;
-    placed.push(g);
+    g.targetX=best.x;g.targetY=best.y;g.spawnAngle=best.angle;sectors[best.sector]++;placed.push(g);
   });
-  // Preserve the old DOM positions as animation starts from the center, while
-  // keeping every destination collision-tested against the already placed cards.
-  groups.forEach(g=>{g.x=-width/2;g.y=-height/2;});
+  groups.forEach(g=>{g.x=-g.w/2;g.y=-g.h/2;});
   state.islands=new Map(groups.map(g=>[g.key,g]));
 }
 function animateIslands(groups, slowAnimation=false) {
@@ -300,7 +264,7 @@ function updateLayoutVisually(changedKey="") {
   }
 }
 function render(slowAnimation=false) {
-  const groups=groupRankings(); arrangeIslands(groups, true);
+  const groups=groupRankings();
   $("#ranking-count").textContent=state.rankings.length+" ranking"+(state.rankings.length===1?"":"s");
   $("#canvas-empty").hidden=state.rankings.length>0;
   layer.replaceChildren();
@@ -308,7 +272,7 @@ function render(slowAnimation=false) {
   if(strings) layer.append(strings);
   groups.forEach(g=>{
     const island=createNode("section","island"+(g.cluster?" tag-cluster":" single-ranking"),undefined);
-    island.dataset.key=g.key; island.style.left=g.x+"px"; island.style.top=g.y+"px"; island.style.width=g.w+"px";
+    island.dataset.key=g.key; island.style.left="0px"; island.style.top="0px";
     const header=createNode("div","island-header");
     const emblem=createNode("div","island-emblem",g.tags.length?g.tags[0].slice(0,1).toUpperCase():"◇");
     emblem.style.color=COLORS[Math.abs(hash(g.key))%COLORS.length];
@@ -342,6 +306,9 @@ function render(slowAnimation=false) {
     if(g.cluster){footer.append(tagWrap,createNode("span","island-count",g.items.length+" grids"));island.append(footer);} else {footer.append(tagWrap);island.append(footer);}
     layer.append(island);
   });
+  // Measure each finished card, including grouped boards, before calculating
+  // destination positions and collision boxes.
+  arrangeIslands(groups, true);
   applyTransform();
   animateIslands(groups, slowAnimation);
 }
