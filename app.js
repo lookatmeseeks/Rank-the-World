@@ -133,49 +133,103 @@ function arrangeIslands(groups, animate=true) {
   state.islands=new Map(groups.map(g=>[g.key,g]));
 }
 function animateIslands(groups, slowAnimation=false) {
+  if(state.animationFrame) cancelAnimationFrame(state.animationFrame);
   const elements=groups.map(g=>layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]'));
-  elements.forEach(el=>{
-    if(!el)return;
-    const tilt=(Math.random()-.5)*12;
-    el.style.left=(-160)+"px";el.style.top=(-130)+"px";
-    el.style.opacity="0";
-    el.style.transform="scale(.68) rotate("+tilt+"deg)";
+  const width=320,height=260,gap=24;
+  const launchInterval=slowAnimation?720:520;
+  const speed=slowAnimation?205:260;
+  const spring=3.2,damping=.84;
+  const bodies=groups.map((g,i)=>{
+    const el=elements[i];
+    if(!el)return null;
+    const tilt=(Math.random()-.5)*8;
+    el.style.left=(-width/2)+"px";el.style.top=(-height/2)+"px";
+    el.style.opacity="0";el.style.transform="scale(.88) rotate("+tilt+"deg)";
     el.style.transition="none";
-  });
-  state.animationFrame=requestAnimationFrame(()=>{
-    groups.forEach((g,i)=>{
-      const el=elements[i];if(!el)return;
-      const rankIndex=state.rankings.findIndex(r=>String(r.id)===String(g.items[0].id));
-      // Let each ranking become readable before the next one launches.
-      const delay=i*(slowAnimation?520:380)+Math.random()*(slowAnimation?100:70);
-      const moveDuration=slowAnimation?1850:1350, popDuration=slowAnimation?1250:900, fadeDuration=slowAnimation?650:450;
-      el.style.transition="left "+moveDuration+"ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, top "+moveDuration+"ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, opacity "+fadeDuration+"ms ease "+delay+"ms, transform "+popDuration+"ms cubic-bezier(.25,1.55,.5,1) "+delay+"ms";
-      el.style.left=(-160)+"px";el.style.top=(-130)+"px";
-      // Commit the center position before launching toward the assigned radial destination.
-      void el.offsetWidth;
-      el.style.left=g.targetX+"px";el.style.top=g.targetY+"px";
-      el.style.opacity="1";el.style.transform="scale(1) rotate(0deg)";
-    });
-    const strings=layer.querySelector(".tag-strings");
-    if(strings){
-      updateTagStringPaths(groups,strings);
-      requestAnimationFrame(()=>{
-        strings.querySelectorAll('path[data-role="strand"]').forEach(path=>path.setAttribute("stroke-dashoffset","0"));
-        const began=performance.now();
-        const itemDelay=slowAnimation?520:380;
-        const total=(slowAnimation?1850:1350)+Math.max(0,groups.length-1)*itemDelay+(slowAnimation?100:70);
-        let lastGeometryUpdate=0;
-        const follow=now=>{
-          // Around 30 Hz keeps dense SVG networks from starving island movement.
-          if(now-lastGeometryUpdate>=32){updateTagStringPaths(groups,strings);lastGeometryUpdate=now;}
-          if(now-began<total+100)requestAnimationFrame(follow);
-          else updateTagStringPaths(groups,strings);
-        };
-        requestAnimationFrame(follow);
-      });
+    return {g,el,x:-width/2,y:-height/2,vx:0,vy:0,launched:false,settled:false,launchAt:i*launchInterval,tilt};
+  }).filter(Boolean);
+  const startTime=performance.now();
+  let lastTime=startTime;
+  let launchedCount=0;
+  function tick(now) {
+    const dt=Math.min(.032,Math.max(.001,(now-lastTime)/1000));
+    lastTime=now;
+    const elapsed=now-startTime;
+    // Rankings launch one at a time. Hidden, unlaunched cards do not participate
+    // in collisions, so the moving card genuinely travels through the visible sea.
+    for(const b of bodies) {
+      if(!b.launched && elapsed>=b.launchAt) {
+        b.launched=true;launchedCount++;
+        b.el.style.opacity="1";
+        b.el.style.transform="scale(1) rotate(0deg)";
+      }
     }
-    state.animationFrame=null;
-  });
+    const active=bodies.filter(b=>b.launched);
+    // The current boat steers toward its destination. Other rankings have soft
+    // springs toward their own resting places, allowing the wake to close behind it.
+    active.forEach(b=>{
+      if(b.settled)return;
+      const tx=b.g.targetX,ty=b.g.targetY;
+      const dx=tx-b.x,dy=ty-b.y,dist=Math.hypot(dx,dy);
+      if(dist<13 && Math.hypot(b.vx,b.vy)<34) {
+        b.x=tx;b.y=ty;b.vx=0;b.vy=0;b.settled=true;return;
+      }
+      const steer=Math.min(speed,dist*2.2);
+      if(dist>0.01){b.vx+=(dx/dist)*steer*dt;b.vy+=(dy/dist)*steer*dt;}
+      const maxSpeed=speed*1.25,velocity=Math.hypot(b.vx,b.vy);
+      if(velocity>maxSpeed){b.vx=b.vx/velocity*maxSpeed;b.vy=b.vy/velocity*maxSpeed;}
+    });
+    // Resolve rectangular collisions in several small passes. The active boat
+    // yields little ground; neighboring rankings receive most of the displacement.
+    for(let pass=0;pass<3;pass++) {
+      for(let i=0;i<active.length;i++)for(let j=i+1;j<active.length;j++) {
+        const a=active[i],b=active[j];
+        const dx=(b.x+width/2)-(a.x+width/2);
+        const dy=(b.y+height/2)-(a.y+height/2);
+        const ox=width+gap-Math.abs(dx),oy=height+gap-Math.abs(dy);
+        if(ox<=0||oy<=0)continue;
+        let nx=0,ny=0,penetration=0;
+        if(ox<oy){nx=dx===0?(i%2?1:-1):Math.sign(dx);penetration=ox;}
+        else {ny=dy===0?(j%2?1:-1):Math.sign(dy);penetration=oy;}
+        const aMoving=!a.settled,bMoving=!b.settled;
+        const aShare=aMoving?(bMoving?.42:.16):0;
+        const bShare=bMoving?(aMoving?.42:.84):0;
+        const total=aShare+bShare||1;
+        const moveA=penetration*aShare/total*.62;
+        const moveB=penetration*bShare/total*.62;
+        a.x-=nx*moveA;a.y-=ny*moveA;b.x+=nx*moveB;b.y+=ny*moveB;
+        const impulse=Math.min(95,penetration*2.1);
+        if(aMoving){a.vx-=nx*impulse*.32;a.vy-=ny*impulse*.32;}
+        if(bMoving){b.vx+=nx*impulse*.32;b.vy+=ny*impulse*.32;}
+      }
+    }
+    active.forEach(b=>{
+      if(b.settled) {
+        // Settled cards can be disturbed by a passing boat, then ease back into
+        // their own place once the pressure from the wake has passed.
+        const dx=b.g.targetX-b.x,dy=b.g.targetY-b.y;
+        b.vx+=dx*spring*dt;b.vy+=dy*spring*dt;
+      }
+      b.vx*=Math.pow(damping,dt*60);b.vy*=Math.pow(damping,dt*60);
+      b.x+=b.vx*dt;b.y+=b.vy*dt;
+      b.el.style.left=b.x+"px";b.el.style.top=b.y+"px";
+      b.g.x=b.x;b.g.y=b.y;
+    });
+    const allLaunched=launchedCount===bodies.length;
+    const unsettled=active.some(b=>!b.settled);
+    const stillMoving=active.some(b=>Math.hypot(b.vx,b.vy)>7);
+    if(!allLaunched||unsettled||stillMoving) {
+      state.animationFrame=requestAnimationFrame(tick);
+    } else {
+      // Final gentle settle keeps cards aligned with their computed resting positions.
+      active.forEach(b=>{
+        b.el.style.left=b.g.targetX+"px";b.el.style.top=b.g.targetY+"px";
+        b.g.x=b.g.targetX;b.g.y=b.g.targetY;
+      });
+      state.animationFrame=null;
+    }
+  }
+  state.animationFrame=requestAnimationFrame(tick);
 }
 function createNode(tag, className, text) { const el=document.createElement(tag); if(className)el.className=className; if(text!==undefined)el.textContent=text; return el; }
 function createTagStrings(groups, slowAnimation=false) {
