@@ -4,6 +4,8 @@ const $ = (selector) => document.querySelector(selector);
 const viewport = $("#canvas-viewport"), world = $("#canvas-world"), layer = $("#islands-layer");
 const modal = $("#create-modal"), form = $("#create-form"), titleInput = $("#ranking-title"), descInput = $("#ranking-description"), tagsInput = $("#ranking-tags");
 const detail = $("#ranking-modal"), toast = $("#toast");
+const DEFAULT_FORCES = { coreSpacing:300, outerOffset:1000, ringSpacing:420, tagPull:70, separation:850, randomness:35 };
+const forces = {...DEFAULT_FORCES};
 const state = { rankings: [], islands: new Map(), zoom: 1, panX: 0, panY: 0, nextId: 1, panning: null, activeRanking: null, clusterTag: "", layoutSeed: 1, animationFrame: null };
 const COLORS = ["#b7a7ff","#7ed9c4","#f0be85","#f18ca7","#8ec7f3","#d4a0ef"];
 function showToast(message) { toast.textContent = message; toast.classList.add("visible"); clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.classList.remove("visible"), 2800); }
@@ -32,7 +34,6 @@ function islandSize(group) { return { w: 320, h: 260 }; }
 function arrangeIslands(groups, animate=true) {
   if(state.animationFrame) cancelAnimationFrame(state.animationFrame);
   const width=320,height=260,gap=54;
-  const next=new Map();
   const rotation=Math.random()*Math.PI*2;
   const selected=state.clusterTag;
   const hasSelected=!!selected;
@@ -46,62 +47,69 @@ function arrangeIslands(groups, animate=true) {
     return Math.abs(cx-(other.targetX+width/2))<width+gap &&
            Math.abs(cy-(other.targetY+height/2))<height+gap;
   }
-  // Rankings carrying the selected tag form the central group.
-  // A golden-angle spiral spreads them around the center without a row/column bias.
+  const variation=forces.randomness/100;
+  // The selected tag's rankings occupy a compact central cluster, with only enough spacing to avoid overlap.
   core.forEach((g,i)=>{
-    g.w=width;g.h=height;g.manual=false;g.vx=0;g.vy=0;
-    let radius=i===0?0:Math.ceil(Math.sqrt(i))*330;
-    let angle=rotation+i*2.399963229728653;
+    g.w=width;g.h=height;g.vx=0;g.vy=0;
+    let radius=i===0?0:Math.ceil(Math.sqrt(i))*forces.coreSpacing;
+    let angle=rotation+i*2.399963229728653+(Math.random()-.5)*variation*.5;
     let cx=Math.cos(angle)*radius,cy=Math.sin(angle)*radius;
     let tries=0;
-    while(placed.some(o=>overlaps(cx,cy,o))&&tries++<20){
-      radius+=85;cx=Math.cos(angle)*radius;cy=Math.sin(angle)*radius;
+    while(placed.some(o=>overlaps(cx,cy,o))&&tries++<24){
+      radius+=Math.max(35,forces.coreSpacing*.2);cx=Math.cos(angle)*radius;cy=Math.sin(angle)*radius;
     }
-    g.targetX=cx-width/2;g.targetY=cy-height/2;
-    placed.push(g);
+    g.targetX=cx-width/2;g.targetY=cy-height/2;placed.push(g);
   });
-  // All remaining rankings grow outward in radial rings. Tag links affect the
-  // preferred distance, while a fresh rotation/jitter avoids identical layouts.
+  // Nonmatching rankings are constrained to distant concentric rings. Shared tags
+  // influence angular placement, so related outer rankings orbit near one another.
   outer.forEach((g,i)=>{
-    g.w=width;g.h=height;g.manual=false;g.vx=0;g.vy=0;
+    g.w=width;g.h=height;g.vx=0;g.vy=0;
     let best=null,bestScore=Infinity;
     const coreRadius=hasSelected&&core.length?Math.max(...core.map(p=>Math.hypot(p.targetX+width/2,p.targetY+height/2))):0;
-    const ringStart=hasSelected&&core.length?coreRadius+410:260;
-    const startRadius=ringStart+Math.floor(i/8)*350;
+    const ringStart=hasSelected&&core.length?Math.max(forces.outerOffset,coreRadius+forces.outerOffset):Math.max(420,forces.outerOffset*.65);
+    const ringIndex=Math.floor(i/Math.max(8,Math.floor(8+variation*8)));
+    const targetRadius=ringStart+ringIndex*forces.ringSpacing;
     const phase=rotation+i*2.399963229728653;
-    for(let ring=0;ring<6;ring++){
-      const radius=startRadius+ring*100;
-      for(let k=0;k<64;k++){
-        const angle=phase+k*(Math.PI*2/64);
-        const cx=Math.cos(angle)*radius+(Math.random()-.5)*55;
-        const cy=Math.sin(angle)*radius+(Math.random()-.5)*55;
-        let score=0;
+    for(let ring=0;ring<4;ring++){
+      const radius=targetRadius+ring*forces.ringSpacing*.45;
+      for(let k=0;k<96;k++){
+        const angle=phase+k*(Math.PI*2/96);
+        const jitter=(Math.random()-.5)*forces.randomness*1.2;
+        const cx=Math.cos(angle)*(radius+jitter);
+        const cy=Math.sin(angle)*(radius+jitter);
+        let score=Math.abs(Math.hypot(cx,cy)-targetRadius)*1.7;
         for(const other of placed){
           const ox=other.targetX+width/2,oy=other.targetY+height/2;
           const dist=Math.max(1,Math.hypot(cx-ox,cy-oy));
           const shared=sharedCount(g,other);
-          const selectedLink=hasSelected&&g.items[0].tags.some(t=>tagKey(t)===tagKey(selected))&&other.items[0].tags.some(t=>tagKey(t)===tagKey(selected));
-          const desired=shared?(selectedLink?390:450):720;
-          score+=Math.abs(dist-desired)*(shared?1.2:.7);
-          if(overlaps(cx,cy,other))score+=150000;
+          if(hasSelected&&core.includes(other)){
+            // Keep every nonmatching ranking outside a clear buffer around the emphasized core.
+            const minDist=coreRadius+forces.outerOffset;
+            score+=Math.max(0,minDist-dist)*5;
+          } else {
+            const desired=shared?Math.max(width+gap+15,forces.separation*(1-(forces.tagPull/100)*Math.min(1,shared/2))):forces.separation;
+            score+=Math.abs(dist-desired)*(shared?1.8:0.75);
+          }
+          if(overlaps(cx,cy,other))score+=250000;
         }
-        score+=Math.abs(Math.hypot(cx,cy)-radius)*.35;
+        score+=(Math.random()-.5)*forces.randomness*4;
         if(score<bestScore){bestScore=score;best={x:cx-width/2,y:cy-height/2};}
       }
-      if(bestScore<10000)break;
     }
-    g.targetX=best?best.x:Math.cos(phase)*startRadius-width/2;
-    g.targetY=best?best.y:Math.sin(phase)*startRadius-height/2;
+    g.targetX=best?best.x:Math.cos(phase)*targetRadius-width/2;
+    g.targetY=best?best.y:Math.sin(phase)*targetRadius-height/2;
     placed.push(g);
   });
+  // Without an emphasized tag, retain a radial layout but still group shared tags.
+  if(!hasSelected){
+    // The scoring above already applies shared-tag attraction across all rankings.
+  }
   groups.forEach(g=>{
     const angle=rotation+Math.random()*Math.PI*2;
     const radius=12+Math.random()*70;
-    g.x=Math.cos(angle)*radius-width/2;
-    g.y=Math.sin(angle)*radius-height/2;
-    next.set(g.key,g);
+    g.x=Math.cos(angle)*radius-width/2;g.y=Math.sin(angle)*radius-height/2;
   });
-  state.islands=next;
+  state.islands=new Map(groups.map(g=>[g.key,g]));
 }
 function animateIslands(groups, slowAnimation=false) {
   const elements=groups.map(g=>layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]'));
@@ -336,6 +344,61 @@ $("#close-modal").addEventListener("click",()=>closeDialog(modal));$("#cancel-mo
 modal.addEventListener("click",e=>{if(e.target===modal)closeDialog(modal);});
 form.addEventListener("submit",e=>{e.preventDefault();const title=titleInput.value.trim();if(!title){titleInput.focus();return;}const id=form.dataset.editId;if(id){const r=state.rankings.find(x=>x.id===id);if(!r)return;r.title=title;r.description=descInput.value.trim();r.tags=cleanTags(tagsInput.value);delete form.dataset.editId;$("#modal-title").textContent="Create a ranking";form.querySelector('[type="submit"]').textContent="Create ranking";closeDialog(modal);render();showToast("Ranking updated; islands are reforming by tag relationships.");return;}state.rankings.push({id:String(state.nextId++),title,description:descInput.value.trim(),tags:cleanTags(tagsInput.value)});closeDialog(modal);render();showToast("Ranking added; the islands are forming.");});
 modal.addEventListener("close",()=>{delete form.dataset.editId;$("#modal-title").textContent="Create a ranking";form.querySelector('[type="submit"]').textContent="Create ranking";});
+
+const forceControls=[
+  ["coreSpacing","force-core-spacing",v=>v+" px"],
+  ["outerOffset","force-outer-offset",v=>v+" px"],
+  ["ringSpacing","force-ring-spacing",v=>v+" px"],
+  ["tagPull","force-tag-pull",v=>v+"%"],
+  ["separation","force-separation",v=>v+" px"],
+  ["randomness","force-randomness",v=>v+"%"]
+];
+function syncForceControls(){
+  forceControls.forEach(([key,id,format])=>{
+    const input=$("#"+id),output=$("#"+id+"-value");
+    if(input)input.value=forces[key];
+    if(output)output.textContent=format(forces[key]);
+  });
+}
+forceControls.forEach(([key,id,format])=>{
+  $("#"+id).addEventListener("input",e=>{
+    forces[key]=Number(e.target.value);
+    $("#"+id+"-value").textContent=format(forces[key]);
+    render(true);
+  });
+});
+$("#reset-forces").addEventListener("click",()=>{
+  Object.assign(forces,DEFAULT_FORCES);syncForceControls();render(true);showToast("Layout forces reset.");
+});
+$("#export-forces").addEventListener("click",()=>{
+  const payload={format:"rank-the-world-layout-preset",version:1,forces:{...forces}};
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement("a");link.href=url;link.download="rank-the-world-layout-preset.json";link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  showToast("Layout preset exported.");
+});
+$("#import-forces").addEventListener("change",async e=>{
+  const file=e.target.files&&e.target.files[0];if(!file)return;
+  try{
+    const parsed=JSON.parse(await file.text());
+    const source=parsed&&parsed.format==="rank-the-world-layout-preset"&&parsed.forces;
+    if(!source)throw new Error("Not a Rank the World layout preset.");
+    forceControls.forEach(([key,id])=>{
+      const input=$("#"+id),value=Number(source[key]);
+      if(Number.isFinite(value))forces[key]=Math.max(Number(input.min),Math.min(Number(input.max),value));
+    });
+    syncForceControls();render(true);showToast("Layout preset imported.");
+  }catch(error){showToast("Could not import preset: "+error.message);}
+  e.target.value="";
+});
+$("#toggle-forces").addEventListener("click",()=>{
+  const sidebar=$("#force-sidebar"),collapsed=sidebar.classList.toggle("collapsed");
+  $("#toggle-forces").textContent=collapsed?"+":"−";
+  $("#toggle-forces").setAttribute("aria-label",collapsed?"Expand layout settings":"Collapse layout settings");
+});
+syncForceControls();
+
 window.addEventListener("resize",applyTransform);
 applyTransform();
 })();
