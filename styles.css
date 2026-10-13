@@ -39,3 +39,28 @@
 .island.tag-cluster .island-rankings{gap:12px}
 .island.tag-cluster .ranking-board{background:#1b1d25;border-color:#373c49;box-shadow:0 10px 24px #0003}
 .island.tag-cluster .island-footer{border:0;padding:0 4px;margin-top:8px}
+
+/* Adjustable tag-force sidebar and portable JSON presets */
+.force-sidebar{position:absolute;z-index:4;left:16px;top:76px;bottom:16px;width:292px;overflow:auto;padding:17px;border:1px solid #373b49;border-radius:14px;background:#191b23f2;box-shadow:0 14px 42px #0005;backdrop-filter:blur(14px)}
+.force-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.force-heading h2{margin:3px 0 0;font-size:19px;letter-spacing:-.5px}
+.force-intro{margin:12px 0 17px;color:#9ca2b2;font-size:11px;line-height:1.5}
+.force-controls label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:14px 0 5px;font-size:11px;font-weight:700}
+.force-controls output{color:#c2b5ff;font-variant-numeric:tabular-nums;white-space:nowrap}
+.force-controls input[type=range]{width:100%;accent-color:#aa98ff;cursor:pointer}
+.force-hint{margin:1px 0 8px;color:#7f8697;font-size:10px;line-height:1.4}
+.force-actions{display:flex;gap:7px;margin-top:17px}
+.force-actions button{min-height:35px;padding:0 10px;font-size:11px}
+.import-preset{display:block;margin-top:12px;padding:9px 10px;border:1px solid #393d49;border-radius:8px;background:#22252f;color:#d9dce6;font-size:11px;font-weight:700;text-align:center;cursor:pointer}
+.import-preset input{display:block;width:100%;margin-top:8px;color:#969caf;font-size:10px;font-weight:400}
+.force-sidebar.collapsed{width:55px;height:55px;bottom:auto;overflow:hidden;padding:10px}
+.force-sidebar.collapsed .force-heading{align-items:center}
+.force-sidebar.collapsed .force-heading>div,.force-sidebar.collapsed .force-intro,.force-sidebar.collapsed .force-controls,.force-sidebar.collapsed .force-actions,.force-sidebar.collapsed .import-preset{display:none}
+.force-sidebar.collapsed .force-heading h2{display:none}
+.force-sidebar.collapsed .force-heading .eyebrow{display:none}
+.force-sidebar.collapsed #toggle-forces{flex:0 0 32px}
+@media(max-width:700px){
+  .force-sidebar{left:8px;top:68px;bottom:8px;width:min(285px,calc(100vw - 16px));padding:13px}
+  .force-sidebar.collapsed{width:48px;height:48px;padding:8px}
+  .force-actions button{padding:0 7px;font-size:10px}
+}
