@@ -126,7 +126,11 @@ function animateIslands(groups, slowAnimation=false) {
     groups.forEach((g,i)=>{
       const el=elements[i];if(!el)return;
       const rankIndex=state.rankings.findIndex(r=>String(r.id)===String(g.items[0].id));
-      const delay=(state.rankings.length-1-rankIndex)*(slowAnimation?125:65)+Math.random()*(slowAnimation?100:65);
+      // Enter in small waves instead of launching every ranking at once.
+      // Each wave gets time to settle before the next one starts.
+      const waveSize=8;
+      const waveIndex=Math.floor(i/waveSize);
+      const delay=waveIndex*(slowAnimation?1750:1050)+(i%waveSize)*(slowAnimation?55:30)+Math.random()*(slowAnimation?35:20);
       const moveDuration=slowAnimation?1550:850, popDuration=slowAnimation?1050:620, fadeDuration=slowAnimation?650:320;
       el.style.transition="left "+moveDuration+"ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, top "+moveDuration+"ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, opacity "+fadeDuration+"ms ease "+delay+"ms, transform "+popDuration+"ms cubic-bezier(.25,1.55,.5,1) "+delay+"ms";
       el.style.left=g.targetX+"px";el.style.top=g.targetY+"px";
@@ -138,13 +142,17 @@ function animateIslands(groups, slowAnimation=false) {
       requestAnimationFrame(()=>{
         strings.querySelectorAll('path[data-role="strand"]').forEach(path=>path.setAttribute("stroke-dashoffset","0"));
         const began=performance.now();
-        const total=(slowAnimation?1550:850)+Math.max(0,...groups.map((g,i)=>{
-          const rankIndex=state.rankings.findIndex(r=>String(r.id)===String(g.items[0].id));
-          return (state.rankings.length-1-rankIndex)*(slowAnimation?125:65)+(slowAnimation?100:65);
-        }));
+        const waveSize=8;
+        const waveDelay=slowAnimation?1750:1050;
+        const itemDelay=slowAnimation?55:30;
+        const total=(slowAnimation?1550:850)+Math.max(0,Math.floor((groups.length-1)/waveSize))*waveDelay+
+          Math.max(0,((groups.length-1)%waveSize))*itemDelay+(slowAnimation?35:20);
+        let lastGeometryUpdate=0;
         const follow=now=>{
-          updateTagStringPaths(groups,strings);
+          // Around 30 Hz keeps dense SVG networks from starving island movement.
+          if(now-lastGeometryUpdate>=32){updateTagStringPaths(groups,strings);lastGeometryUpdate=now;}
           if(now-began<total+100)requestAnimationFrame(follow);
+          else updateTagStringPaths(groups,strings);
         };
         requestAnimationFrame(follow);
       });
@@ -209,52 +217,61 @@ function createTagStrings(groups, slowAnimation=false) {
 }
 function updateTagStringPaths(groups, svg) {
   if(!svg)return;
+  // Read each island's geometry once per update instead of once per strand.
   const elements=new Map(groups.map(g=>[g.key,layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]')]));
-  const rectFor=key=>{
-    const el=elements.get(key);
-    if(!el)return null;
+  const rects=new Map();
+  elements.forEach((el,key)=>{
+    if(!el)return;
     const x=parseFloat(getComputedStyle(el).left)||0;
     const y=parseFloat(getComputedStyle(el).top)||0;
-    return {x,y,w:el.offsetWidth||320,h:el.offsetHeight||260,cx:x+(el.offsetWidth||320)/2,cy:y+(el.offsetHeight||260)/2};
-  };
-  const closestAnchors=(a,b)=>{
+    const w=el.offsetWidth||320,h=el.offsetHeight||260;
+    rects.set(key,{x,y,w,h,cx:x+w/2,cy:y+h/2});
+  });
+  const anchorCache=new Map();
+  const anchorsFor=(keyA,keyB)=>{
+    const cacheKey=keyA+"|"+keyB;
+    if(anchorCache.has(cacheKey))return anchorCache.get(cacheKey);
+    const a=rects.get(keyA),b=rects.get(keyB);
+    if(!a||!b)return null;
     const overlapTop=Math.max(a.y,b.y),overlapBottom=Math.min(a.y+a.h,b.y+b.h);
     const overlapLeft=Math.max(a.x,b.x),overlapRight=Math.min(a.x+a.w,b.x+b.w);
     const gapX=Math.max(0,b.x-(a.x+a.w),a.x-(b.x+b.w));
     const gapY=Math.max(0,b.y-(a.y+a.h),a.y-(b.y+b.h));
+    let result;
     if(gapX>0 && overlapBottom>=overlapTop){
       const y=Math.max(overlapTop,Math.min(overlapBottom,(a.cy+b.cy)/2));
-      return b.cx>a.cx?[{x:a.x+a.w,y},{x:b.x,y}]:[{x:a.x,y},{x:b.x+b.w,y}];
-    }
-    if(gapY>0 && overlapRight>=overlapLeft){
+      result=b.cx>a.cx?[{x:a.x+a.w,y},{x:b.x,y}]:[{x:a.x,y},{x:b.x+b.w,y}];
+    } else if(gapY>0 && overlapRight>=overlapLeft){
       const x=Math.max(overlapLeft,Math.min(overlapRight,(a.cx+b.cx)/2));
-      return b.cy>a.cy?[{x,y:a.y+a.h},{x,y:b.y}]:[{x,y:a.y},{x,y:b.y+b.h}];
-    }
-    if(gapX>0 && gapY>0){
-      return [
+      result=b.cy>a.cy?[{x,y:a.y+a.h},{x,y:b.y}]:[{x,y:a.y},{x,y:b.y+b.h}];
+    } else if(gapX>0 && gapY>0){
+      result=[
         {x:b.cx>a.cx?a.x+a.w:a.x,y:b.cy>a.cy?a.y+a.h:a.y},
         {x:b.cx>a.cx?b.x:b.x+b.w,y:b.cy>a.cy?b.y:b.y+b.h}
       ];
+    } else {
+      const dx=b.cx-a.cx,dy=b.cy-a.cy;
+      const scaleA=1/Math.max(Math.abs(dx)/(a.w/2),Math.abs(dy)/(a.h/2),0.0001);
+      const scaleB=1/Math.max(Math.abs(dx)/(b.w/2),Math.abs(dy)/(b.h/2),0.0001);
+      result=[{x:a.cx+dx*scaleA,y:a.cy+dy*scaleA},{x:b.cx-dx*scaleB,y:b.cy-dy*scaleB}];
     }
-    const dx=b.cx-a.cx,dy=b.cy-a.cy;
-    const scaleA=1/Math.max(Math.abs(dx)/(a.w/2),Math.abs(dy)/(a.h/2),0.0001);
-    const scaleB=1/Math.max(Math.abs(dx)/(b.w/2),Math.abs(dy)/(b.h/2),0.0001);
-    return [{x:a.cx+dx*scaleA,y:a.cy+dy*scaleA},{x:b.cx-dx*scaleB,y:b.cy-dy*scaleB}];
+    anchorCache.set(cacheKey,result);
+    anchorCache.set(keyB+"|"+keyA,[result[1],result[0]]);
+    return result;
   };
   svg.querySelectorAll("path[data-a]").forEach(path=>{
-    const a=rectFor(path.dataset.a),b=rectFor(path.dataset.b);
-    if(!a||!b)return;
-    const [p1,p2]=closestAnchors(a,b);
+    const anchors=anchorsFor(path.dataset.a,path.dataset.b);
+    if(!anchors)return;
+    const p1=anchors[0],p2=anchors[1];
     const dx=p2.x-p1.x,dy=p2.y-p1.y,dist=Math.hypot(dx,dy);
     const slack=Math.min(72,18+dist*.065);
     const cx=(p1.x+p2.x)/2,cy=(p1.y+p2.y)/2+slack;
-    path.setAttribute("d",`M ${p1.x} ${p1.y} Q ${cx} ${cy} ${p2.x} ${p2.y}`);
+    path.setAttribute("d","M "+p1.x+" "+p1.y+" Q "+cx+" "+cy+" "+p2.x+" "+p2.y);
   });
   svg.querySelectorAll("circle[data-endpoint]").forEach(dot=>{
-    const a=rectFor(dot.dataset.a),b=rectFor(dot.dataset.b);
-    if(!a||!b)return;
-    const [p1,p2]=closestAnchors(a,b);
-    const point=dot.dataset.endpoint==="a"?p1:p2;
+    const anchors=anchorsFor(dot.dataset.a,dot.dataset.b);
+    if(!anchors)return;
+    const point=dot.dataset.endpoint==="a"?anchors[0]:anchors[1];
     dot.setAttribute("cx",point.x);
     dot.setAttribute("cy",point.y);
   });
