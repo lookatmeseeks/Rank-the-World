@@ -102,8 +102,7 @@ function animateIslands(groups, slowAnimation=false) {
   const bodies=groups.map((g,i)=>{
     const el=layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]');if(!el)return null;
     const w=el.offsetWidth||320,h=el.offsetHeight||300;
-    // Convert the layout's 320x260 reference point to the actual card dimensions.
-    const tx=g.targetX+160-w/2,ty=g.targetY+130-h/2;
+    const tx=g.targetX,ty=g.targetY;
     const angle=i*2.399963229728653+(Math.random()-.5)*.45,radius=i===0?0:Math.min(34,8+i*1.2);
     const x=Math.cos(angle)*radius-w/2,y=Math.sin(angle)*radius-h/2;
     el.style.left=x+"px";el.style.top=y+"px";el.style.opacity="0";el.style.transform="scale(.94)";el.style.transition="none";
