@@ -191,7 +191,18 @@ function createTagStrings(groups, slowAnimation=false) {
       strand.setAttribute("stroke-dasharray","1");
       strand.setAttribute("stroke-dashoffset","1");
       strand.style.transition="stroke-dashoffset "+(slowAnimation?"1550ms":"850ms")+" cubic-bezier(.2,.75,.25,1)";
-      svg.append(shadow,strand);
+      const dotA=document.createElementNS(svgNS,"circle");
+      const dotB=document.createElementNS(svgNS,"circle");
+      [[dotA,"a"],[dotB,"b"]].forEach(([dot,side])=>{
+        dot.dataset.a=a.key;
+        dot.dataset.b=b.key;
+        dot.dataset.endpoint=side;
+        dot.setAttribute("r","3");
+        dot.setAttribute("fill",color);
+        dot.setAttribute("stroke","#171920");
+        dot.setAttribute("stroke-width","1.5");
+      });
+      svg.append(shadow,strand,dotA,dotB);
     }
   }
   return seen.size?svg:null;
@@ -238,6 +249,14 @@ function updateTagStringPaths(groups, svg) {
     const slack=Math.min(72,18+dist*.065);
     const cx=(p1.x+p2.x)/2,cy=(p1.y+p2.y)/2+slack;
     path.setAttribute("d",`M ${p1.x} ${p1.y} Q ${cx} ${cy} ${p2.x} ${p2.y}`);
+  });
+  svg.querySelectorAll("circle[data-endpoint]").forEach(dot=>{
+    const a=rectFor(dot.dataset.a),b=rectFor(dot.dataset.b);
+    if(!a||!b)return;
+    const [p1,p2]=closestAnchors(a,b);
+    const point=dot.dataset.endpoint==="a"?p1:p2;
+    dot.setAttribute("cx",point.x);
+    dot.setAttribute("cy",point.y);
   });
 }
 
