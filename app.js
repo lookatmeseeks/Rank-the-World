@@ -4,7 +4,7 @@ const $ = (selector) => document.querySelector(selector);
 const viewport = $("#canvas-viewport"), world = $("#canvas-world"), layer = $("#islands-layer");
 const modal = $("#create-modal"), form = $("#create-form"), titleInput = $("#ranking-title"), descInput = $("#ranking-description"), tagsInput = $("#ranking-tags");
 const detail = $("#ranking-modal"), toast = $("#toast");
-const state = { rankings: [], islands: new Map(), zoom: 1, panX: 0, panY: 0, nextId: 1, dragging: null, panning: null, activeRanking: null, clusterTag: "", layoutSeed: 1, simFrame: null };
+const state = { rankings: [], islands: new Map(), zoom: 1, panX: 0, panY: 0, nextId: 1, dragging: null, panning: null, activeRanking: null, clusterTag: "", layoutSeed: 1, animationFrame: null };
 const COLORS = ["#b7a7ff","#7ed9c4","#f0be85","#f18ca7","#8ec7f3","#d4a0ef"];
 function showToast(message) { toast.textContent = message; toast.classList.add("visible"); clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.classList.remove("visible"), 2800); }
 function openDialog(d) { if (d.showModal) d.showModal(); else d.setAttribute("open", ""); }
@@ -29,91 +29,87 @@ function groupRankings() {
   }));
 }
 function islandSize(group) { return { w: 320, h: 260 }; }
-function preservePositions(groups) {
-  const old=state.islands, next=new Map();
-  groups.forEach((g,i)=>{
-    const prior=old.get(g.key), size=islandSize(g);
-    if(prior){g.x=prior.x;g.y=prior.y;g.vx=0;g.vy=0;g.manual=prior.manual;}
-    else {
-      // Golden-angle seeds avoid starting every fresh layout in the same line or grid.
-      const angle=(i+state.layoutSeed*0.61803398875)*2.399963229728653;
-      const radius=groups.length>1?210+Math.sqrt(i+1)*110:0;
-      g.x=Math.cos(angle)*radius;g.y=Math.sin(angle)*radius;g.vx=0;g.vy=0;g.manual=false;
+function arrangeIslands(groups, animate=true) {
+  if(state.animationFrame) cancelAnimationFrame(state.animationFrame);
+  const placed=[];
+  const gap=48;
+  const width=320, height=260;
+  // Place newest rankings first at the center; each older ranking must find space around them.
+  // Candidate scoring is deterministic: shared tags prefer proximity, unrelated rankings prefer separation.
+  for(let i=groups.length-1;i>=0;i--){
+    const g=groups[i], depth=groups.length-1-i;
+    g.w=width;g.h=height;g.manual=false;g.vx=0;g.vy=0;
+    if(depth===0){g.targetX=-width/2;g.targetY=-height/2;placed.push(g);continue;}
+    let best=null, bestScore=Infinity;
+    const baseRadius=depth*350;
+    for(let ring=0;ring<5;ring++){
+      const radius=baseRadius+ring*95;
+      for(let k=0;k<36;k++){
+        const angle=(k/36)*Math.PI*2 + (depth%2)*0.0872664626;
+        const x=Math.cos(angle)*radius-width/2;
+        const y=Math.sin(angle)*radius-height/2;
+        let score=0;
+        for(const other of placed){
+          const dx=(x+width/2)-(other.targetX+width/2);
+          const dy=(y+height/2)-(other.targetY+height/2);
+          const dist=Math.max(1,Math.hypot(dx,dy));
+          const shared=g.items[0].tags.filter(t=>other.items[0].tags.some(u=>tagKey(t)===tagKey(u)));
+          const selected=!!(state.clusterTag&&shared.some(t=>tagKey(t)===tagKey(state.clusterTag)));
+          const desired=shared.length?(selected?390:510):650;
+          score+=Math.abs(dist-desired)*(shared.length?1.1:0.85);
+          const ox=(width+other.w)/2+gap-Math.abs(dx);
+          const oy=(height+other.h)/2+gap-Math.abs(dy);
+          if(ox>0&&oy>0)score+=100000+ox*oy*10;
+        }
+        // A small radial penalty keeps the oldest rankings toward the outside.
+        score+=Math.abs(radius-baseRadius)*0.22;
+        if(score<bestScore){bestScore=score;best={x,y};}
+      }
+      if(bestScore<10000)break;
     }
-    g.w=size.w;g.h=size.h;next.set(g.key,g);
+    g.targetX=best.x;g.targetY=best.y;placed.push(g);
+  }
+  const ordered=[...groups].sort((a,b)=>groups.indexOf(b)-groups.indexOf(a));
+  const old=state.islands;
+  const next=new Map();
+  groups.forEach((g,i)=>{
+    const prior=old.get(g.key);
+    if(animate){
+      // Every island begins at the center; newer rankings move first and older ones grow outward.
+      g.x=-width/2;g.y=-height/2;
+    }else{
+      g.x=g.targetX;g.y=g.targetY;
+    }
+    next.set(g.key,g);
   });
   state.islands=next;
+  return {ordered};
 }
-function simulateLayout() {
-  if(state.simFrame) cancelAnimationFrame(state.simFrame);
-  const nodes=[...state.islands.values()];
-  if(nodes.length<2)return;
-  let ticks=0;
-  const maxTicks=600;
-  function step(){
-    const alpha=Math.max(0.035,1-ticks/maxTicks);
-    const forces=nodes.map(()=>({x:0,y:0}));
-    // Tag attraction/repulsion is calculated separately from rectangular collision avoidance.
-    for(let i=0;i<nodes.length;i++){
-      const a=nodes[i];
-      if(!a.manual){forces[i].x+=-a.x*0.00032*alpha;forces[i].y+=-a.y*0.00032*alpha;}
-      for(let j=i+1;j<nodes.length;j++){
-        const b=nodes[j],dx=b.x-a.x,dy=b.y-a.y;
-        const dist=Math.max(1,Math.hypot(dx,dy)),ux=dx/dist,uy=dy/dist;
-        const shared=a.items[0].tags.filter(t=>b.items[0].tags.some(u=>tagKey(t)===tagKey(u)));
-        const selected=!!(state.clusterTag&&shared.some(t=>tagKey(t)===tagKey(state.clusterTag)));
-        if(shared.length){
-          const target=selected?390:520;
-          const strength=selected?0.022:0.008;
-          const force=(dist-target)*strength*alpha;
-          forces[i].x+=ux*force;forces[i].y+=uy*force;
-          forces[j].x-=ux*force;forces[j].y-=uy*force;
-        } else {
-          const minDist=480;
-          if(dist<minDist){
-            const force=(minDist-dist)*0.018*alpha;
-            forces[i].x-=ux*force;forces[i].y-=uy*force;
-            forces[j].x+=ux*force;forces[j].y+=uy*force;
-          }
-        }
-        // Treat each board as a rectangle, so another board can be pushed out of its path.
-        const overlapX=(a.w+b.w)/2+48-Math.abs(dx);
-        const overlapY=(a.h+b.h)/2+48-Math.abs(dy);
-        if(overlapX>0&&overlapY>0){
-          if(overlapX<overlapY){
-            const sign=dx===0?(i%2?1:-1):Math.sign(dx);
-            const push=(overlapX+2)*0.085*alpha*sign;
-            forces[i].x-=push;forces[j].x+=push;
-          }else{
-            const sign=dy===0?(i%2?1:-1):Math.sign(dy);
-            const push=(overlapY+2)*0.085*alpha*sign;
-            forces[i].y-=push;forces[j].y+=push;
-          }
-        }
-      }
-    }
-    // Apply accumulated forces together; sequential movement otherwise biases later nodes.
-    nodes.forEach((g,i)=>{
-      if(g.manual){g.vx=0;g.vy=0;return;}
-      g.vx=(g.vx+forces[i].x)*0.72;
-      g.vy=(g.vy+forces[i].y)*0.72;
-      const speed=Math.hypot(g.vx,g.vy),maxSpeed=16;
-      if(speed>maxSpeed){g.vx=g.vx/speed*maxSpeed;g.vy=g.vy/speed*maxSpeed;}
-      g.x+=g.vx;g.y+=g.vy;
+function animateIslands(groups) {
+  const elements=groups.map(g=>layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]'));
+  elements.forEach((el,i)=>{
+    if(!el)return;
+    el.style.left=(-160)+"px";el.style.top=(-130)+"px";
+    el.style.opacity="0";
+    el.style.transform="scale(.88)";
+    el.style.transition="none";
+  });
+  // Force the initial centered positions to be painted before animating outward.
+  state.animationFrame=requestAnimationFrame(()=>{
+    groups.forEach((g,i)=>{
+      const el=elements[i];if(!el)return;
+      const rankIndex=state.rankings.findIndex(r=>String(r.id)===String(g.items[0].id));
+      const delay=(state.rankings.length-1-rankIndex)*65;
+      el.style.transition="left 850ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, top 850ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, opacity 380ms ease "+delay+"ms, transform 650ms cubic-bezier(.2,.75,.25,1) "+delay+"ms";
+      el.style.left=g.targetX+"px";el.style.top=g.targetY+"px";
+      el.style.opacity="1";el.style.transform="scale(1)";
     });
-    nodes.forEach(g=>{
-      const el=layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]');
-      if(el){el.style.left=g.x+"px";el.style.top=g.y+"px";}
-    });
-    ticks++;
-    if(ticks<maxTicks)state.simFrame=requestAnimationFrame(step);
-    else state.simFrame=null;
-  }
-  state.simFrame=requestAnimationFrame(step);
+    state.animationFrame=null;
+  });
 }
 function createNode(tag, className, text) { const el=document.createElement(tag); if(className)el.className=className; if(text!==undefined)el.textContent=text; return el; }
 function render() {
-  const groups=groupRankings(); preservePositions(groups);
+  const groups=groupRankings(); arrangeIslands(groups, true);
   $("#ranking-count").textContent=state.rankings.length+" ranking"+(state.rankings.length===1?"":"s");
   $("#canvas-empty").hidden=state.rankings.length>0;
   layer.replaceChildren();
@@ -155,13 +151,12 @@ function render() {
     layer.append(island);
   });
   applyTransform();
-  simulateLayout();
+  animateIslands(groups);
 }
 function hash(str){let h=0;for(let i=0;i<str.length;i++)h=((h<<5)-h)+str.charCodeAt(i)|0;return h;}
 function applyTransform(){world.style.transform="translate("+((viewport.clientWidth/2)+state.panX)+"px,"+((viewport.clientHeight/2)+state.panY)+"px) scale("+state.zoom+")";$("#zoom-level").textContent=Math.round(state.zoom*100)+"%";}
 function screenToWorld(x,y){const rect=viewport.getBoundingClientRect();return {x:(x-rect.left-rect.width/2-state.panX)/state.zoom,y:(y-rect.top-rect.height/2-state.panY)/state.zoom};}
 function setZoom(next, cx=viewport.clientWidth/2, cy=viewport.clientHeight/2){const before=screenToWorld(cx+viewport.getBoundingClientRect().left,cy+viewport.getBoundingClientRect().top);state.zoom=Math.max(.25,Math.min(2.1,next));const rect=viewport.getBoundingClientRect();state.panX=cx-rect.width/2-before.x*state.zoom;state.panY=cy-rect.height/2-before.y*state.zoom;applyTransform();}
-function autoArrange(){state.layoutSeed++;state.islands.forEach(g=>g.manual=false);state.islands.clear();render();showToast("Restarted force layout; rankings are moving around obstacles.");}
 function startPan(e){if(e.button!==0||e.target.closest(".island")||e.target.closest("button"))return;state.panning={x:e.clientX,y:e.clientY,px:state.panX,py:state.panY};viewport.classList.add("panning");viewport.setPointerCapture(e.pointerId);}
 function movePointer(e){if(state.panning){state.panX=state.panning.px+e.clientX-state.panning.x;state.panY=state.panning.py+e.clientY-state.panning.y;applyTransform();}else if(state.dragging){const p=screenToWorld(e.clientX,e.clientY),g=state.islands.get(state.dragging.key);if(!g)return;g.x=p.x-state.dragging.dx;g.y=p.y-state.dragging.dy;const el=layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]');if(el){el.style.left=g.x+"px";el.style.top=g.y+"px";}}}
 function endPointer(){if(state.panning){state.panning=null;viewport.classList.remove("panning");}if(state.dragging){const g=state.islands.get(state.dragging.key);if(g)g.manual=true;const el=layer.querySelector(".island.dragging");if(el)el.classList.remove("dragging");state.dragging=null;render();}}
@@ -173,8 +168,7 @@ layer.addEventListener("pointerdown",e=>{const header=e.target.closest(".island-
 viewport.addEventListener("wheel",e=>{e.preventDefault();const rect=viewport.getBoundingClientRect();setZoom(state.zoom*(e.deltaY<0?1.1:1/1.1),e.clientX-rect.left,e.clientY-rect.top);},{passive:false});
 $("#zoom-in").addEventListener("click",()=>setZoom(state.zoom*1.18));$("#zoom-out").addEventListener("click",()=>setZoom(state.zoom/1.18));
 $("#reset-view").addEventListener("click",()=>{state.zoom=1;state.panX=0;state.panY=0;applyTransform();});
-$("#auto-arrange").addEventListener("click",autoArrange);
-$("#cluster-tag").addEventListener("change",e=>{state.clusterTag=e.target.value;render();showToast(state.clusterTag?"Emphasizing tag: "+state.clusterTag:"Using all tags equally.");});
+$("#cluster-tag").addEventListener("change",e=>{state.clusterTag=e.target.value;render();showToast(state.clusterTag?"Reforming islands around tag: "+state.clusterTag:"Reforming islands using all shared tags.");});
 function openCreate(){form.reset();openDialog(modal);setTimeout(()=>titleInput.focus(),30);}
 $("#create-ranking").addEventListener("click",openCreate);$("#empty-create").addEventListener("click",openCreate);
 function addTestSet(){
@@ -192,8 +186,7 @@ function addTestSet(){
     if(state.rankings.some(r=>r.title.toLocaleLowerCase()===sample.title.toLocaleLowerCase()))return;
     state.rankings.push({...sample,id:String(state.nextId++)});added++;
   });
-  if(!added){showToast("The test set is already loaded. Use Auto arrange to try another layout.");return;}
-  state.layoutSeed++;
+  if(!added){showToast("The test rankings are already on the canvas.");return;}
   render();
   showToast("Added "+added+" test rankings with overlapping tags.");
 }
@@ -201,7 +194,7 @@ $("#add-test-lists").addEventListener("click",addTestSet);
 
 $("#close-modal").addEventListener("click",()=>closeDialog(modal));$("#cancel-modal").addEventListener("click",()=>closeDialog(modal));
 modal.addEventListener("click",e=>{if(e.target===modal)closeDialog(modal);});
-form.addEventListener("submit",e=>{e.preventDefault();const title=titleInput.value.trim();if(!title){titleInput.focus();return;}const id=form.dataset.editId;if(id){const r=state.rankings.find(x=>x.id===id);if(!r)return;r.title=title;r.description=descInput.value.trim();r.tags=cleanTags(tagsInput.value);delete form.dataset.editId;$("#modal-title").textContent="Create a ranking";form.querySelector('[type="submit"]').textContent="Create ranking";closeDialog(modal);render();showToast("Ranking updated. Islands regrouped by tags.");return;}state.rankings.push({id:String(state.nextId++),title,description:descInput.value.trim(),tags:cleanTags(tagsInput.value)});closeDialog(modal);render();showToast("Ranking added to the canvas.");});
+form.addEventListener("submit",e=>{e.preventDefault();const title=titleInput.value.trim();if(!title){titleInput.focus();return;}const id=form.dataset.editId;if(id){const r=state.rankings.find(x=>x.id===id);if(!r)return;r.title=title;r.description=descInput.value.trim();r.tags=cleanTags(tagsInput.value);delete form.dataset.editId;$("#modal-title").textContent="Create a ranking";form.querySelector('[type="submit"]').textContent="Create ranking";closeDialog(modal);render();showToast("Ranking updated; islands are reforming by tag relationships.");return;}state.rankings.push({id:String(state.nextId++),title,description:descInput.value.trim(),tags:cleanTags(tagsInput.value)});closeDialog(modal);render();showToast("Ranking added; the islands are forming.");});
 modal.addEventListener("close",()=>{delete form.dataset.editId;$("#modal-title").textContent="Create a ranking";form.querySelector('[type="submit"]').textContent="Create ranking";});
 window.addEventListener("resize",applyTransform);
 applyTransform();
