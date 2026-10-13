@@ -54,7 +54,7 @@ function preservePositions(groups) {
   const placed=[];
   groups.forEach(g=>{
     if(!g.w){const s=islandSize(g);g.w=s.w;g.h=s.h;}
-    if(!g.manual && placed.some(p=>!(g.x+g.w+55<=p.x||p.x+p.w+55<=g.x||g.y+g.h+55<=p.y||p.y+p.h+55<=g.y))){
+    if(placed.some(p=>!(g.x+g.w+55<=p.x||p.x+p.w+55<=g.x||g.y+g.h+55<=p.y||p.y+p.h+55<=g.y)){
       const s=islandSize(g),p=getIslandPosition(g.key,s.w,s.h,placed);g.x=p.x;g.y=p.y;g.w=s.w;g.h=s.h;
     }
     placed.push({x:g.x,y:g.y,w:g.w,h:g.h,key:g.key});
