@@ -4,7 +4,7 @@ const $ = (selector) => document.querySelector(selector);
 const viewport = $("#canvas-viewport"), world = $("#canvas-world"), layer = $("#islands-layer");
 const modal = $("#create-modal"), form = $("#create-form"), titleInput = $("#ranking-title"), descInput = $("#ranking-description"), tagsInput = $("#ranking-tags");
 const detail = $("#ranking-modal"), toast = $("#toast");
-const state = { rankings: [], islands: new Map(), zoom: 1, panX: 0, panY: 0, nextId: 1, dragging: null, panning: null, activeRanking: null, clusterTag: "", layoutSeed: 1, animationFrame: null };
+const state = { rankings: [], islands: new Map(), zoom: 1, panX: 0, panY: 0, nextId: 1, panning: null, activeRanking: null, clusterTag: "", layoutSeed: 1, animationFrame: null };
 const COLORS = ["#b7a7ff","#7ed9c4","#f0be85","#f18ca7","#8ec7f3","#d4a0ef"];
 function showToast(message) { toast.textContent = message; toast.classList.add("visible"); clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.classList.remove("visible"), 2800); }
 function openDialog(d) { if (d.showModal) d.showModal(); else d.setAttribute("open", ""); }
@@ -174,15 +174,14 @@ function render(slowAnimation=false) {
   const strings=createTagStrings(groups, slowAnimation);
   if(strings) layer.append(strings);
   groups.forEach(g=>{
-    const island=createNode("section","island"+(g.manual?" manual":"")+(g.cluster?" tag-cluster":" single-ranking"),undefined);
+    const island=createNode("section","island"+(g.cluster?" tag-cluster":" single-ranking"),undefined);
     island.dataset.key=g.key; island.style.left=g.x+"px"; island.style.top=g.y+"px"; island.style.width=g.w+"px";
     const header=createNode("div","island-header");
     const emblem=createNode("div","island-emblem",g.tags.length?g.tags[0].slice(0,1).toUpperCase():"◇");
     emblem.style.color=COLORS[Math.abs(hash(g.key))%COLORS.length];
     const titleWrap=createNode("div","island-title-wrap");
     titleWrap.append(createNode("h2","island-title",g.title),createNode("div","island-subtitle",g.cluster?g.items.length+" rankings share this tag":"Visible tier list"));
-    const mode=createNode("span","island-mode",g.manual?"MANUAL":"AUTO");
-    header.append(emblem,titleWrap,mode); island.append(header);
+    header.append(emblem,titleWrap); island.append(header);
     const boards=createNode("div","island-rankings");
     boards.style.gridTemplateColumns=g.cluster?"repeat(2, minmax(0, 1fr))":"minmax(0, 1fr)";
     g.items.forEach(r=>{
@@ -225,40 +224,20 @@ function startPan(e){
   try{viewport.setPointerCapture(e.pointerId);}catch{}
 }
 function movePointer(e){
-  if(state.panning){
-    if(e.pointerId!==state.panning.pointerId)return;
-    e.preventDefault();
-    state.panX=state.panning.px+e.clientX-state.panning.x;
-    state.panY=state.panning.py+e.clientY-state.panning.y;
-    applyTransform();
-  }else if(state.dragging){
-    if(e.pointerId!==state.dragging.pointerId)return;
-    e.preventDefault();
-    const p=screenToWorld(e.clientX,e.clientY),g=state.islands.get(state.dragging.key);
-    if(!g)return;
-    g.x=p.x-state.dragging.dx;g.y=p.y-state.dragging.dy;
-    const el=layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]');
-    if(el){el.style.left=g.x+"px";el.style.top=g.y+"px";}
-  }
+  if(!state.panning || e.pointerId!==state.panning.pointerId)return;
+  e.preventDefault();
+  state.panX=state.panning.px+e.clientX-state.panning.x;
+  state.panY=state.panning.py+e.clientY-state.panning.y;
+  applyTransform();
 }
 function endPointer(e){
   if(e && state.panning && e.pointerId!==undefined && e.pointerId!==state.panning.pointerId)return;
-  if(e && state.dragging && e.pointerId!==undefined && e.pointerId!==state.dragging.pointerId)return;
   if(state.panning){state.panning=null;viewport.classList.remove("panning");}
-  if(state.dragging){
-    const g=state.islands.get(state.dragging.key);if(g)g.manual=true;
-    const el=layer.querySelector(".island.dragging");
-    if(el){el.classList.remove("dragging");el.classList.add("manual");const mode=el.querySelector(".island-mode");if(mode)mode.textContent="MANUAL";}
-    state.dragging=null;
-  }
 }
 viewport.addEventListener("pointerdown",startPan);
 viewport.addEventListener("pointermove",movePointer);
 viewport.addEventListener("pointerup",endPointer);viewport.addEventListener("pointercancel",endPointer);
 viewport.addEventListener("lostpointercapture",endPointer);
-window.addEventListener("pointerup",endPointer);window.addEventListener("pointercancel",endPointer);
-document.addEventListener("dragstart",e=>e.preventDefault());
-layer.addEventListener("pointerdown",e=>{const header=e.target.closest(".island-header");const island=e.target.closest(".island");if(!header||!island||e.button!==0)return;e.preventDefault();const key=island.dataset.key,g=state.islands.get(key),p=screenToWorld(e.clientX,e.clientY);state.dragging={pointerId:e.pointerId,key,dx:p.x-g.x,dy:p.y-g.y};island.classList.add("dragging");try{island.setPointerCapture(e.pointerId);}catch{}});
 
 viewport.addEventListener("wheel",e=>{e.preventDefault();const rect=viewport.getBoundingClientRect();setZoom(state.zoom*(e.deltaY<0?1.1:1/1.1),e.clientX-rect.left,e.clientY-rect.top);},{passive:false});
 $("#zoom-in").addEventListener("click",()=>setZoom(state.zoom*1.18));$("#zoom-out").addEventListener("click",()=>setZoom(state.zoom/1.18));
