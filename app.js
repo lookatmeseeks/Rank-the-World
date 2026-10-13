@@ -217,13 +217,48 @@ function hash(str){let h=0;for(let i=0;i<str.length;i++)h=((h<<5)-h)+str.charCod
 function applyTransform(){world.style.transform="translate("+((viewport.clientWidth/2)+state.panX)+"px,"+((viewport.clientHeight/2)+state.panY)+"px) scale("+state.zoom+")";$("#zoom-level").textContent=Math.round(state.zoom*100)+"%";}
 function screenToWorld(x,y){const rect=viewport.getBoundingClientRect();return {x:(x-rect.left-rect.width/2-state.panX)/state.zoom,y:(y-rect.top-rect.height/2-state.panY)/state.zoom};}
 function setZoom(next, cx=viewport.clientWidth/2, cy=viewport.clientHeight/2){const before=screenToWorld(cx+viewport.getBoundingClientRect().left,cy+viewport.getBoundingClientRect().top);state.zoom=Math.max(.25,Math.min(2.1,next));const rect=viewport.getBoundingClientRect();state.panX=cx-rect.width/2-before.x*state.zoom;state.panY=cy-rect.height/2-before.y*state.zoom;applyTransform();}
-function startPan(e){if(e.button!==0||e.target.closest(".island")||e.target.closest("button"))return;state.panning={x:e.clientX,y:e.clientY,px:state.panX,py:state.panY};viewport.classList.add("panning");viewport.setPointerCapture(e.pointerId);}
-function movePointer(e){if(state.panning){state.panX=state.panning.px+e.clientX-state.panning.x;state.panY=state.panning.py+e.clientY-state.panning.y;applyTransform();}else if(state.dragging){const p=screenToWorld(e.clientX,e.clientY),g=state.islands.get(state.dragging.key);if(!g)return;g.x=p.x-state.dragging.dx;g.y=p.y-state.dragging.dy;const el=layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]');if(el){el.style.left=g.x+"px";el.style.top=g.y+"px";}}}
-function endPointer(){if(state.panning){state.panning=null;viewport.classList.remove("panning");}if(state.dragging){const g=state.islands.get(state.dragging.key);if(g)g.manual=true;const el=layer.querySelector(".island.dragging");if(el){el.classList.remove("dragging");el.classList.add("manual");const mode=el.querySelector(".island-mode");if(mode)mode.textContent="MANUAL";}state.dragging=null;}}
+function startPan(e){
+  if(e.button!==0||e.target.closest(".island")||e.target.closest("button"))return;
+  e.preventDefault();
+  state.panning={pointerId:e.pointerId,x:e.clientX,y:e.clientY,px:state.panX,py:state.panY};
+  viewport.classList.add("panning");
+  try{viewport.setPointerCapture(e.pointerId);}catch{}
+}
+function movePointer(e){
+  if(state.panning){
+    if(e.pointerId!==state.panning.pointerId)return;
+    e.preventDefault();
+    state.panX=state.panning.px+e.clientX-state.panning.x;
+    state.panY=state.panning.py+e.clientY-state.panning.y;
+    applyTransform();
+  }else if(state.dragging){
+    if(e.pointerId!==state.dragging.pointerId)return;
+    e.preventDefault();
+    const p=screenToWorld(e.clientX,e.clientY),g=state.islands.get(state.dragging.key);
+    if(!g)return;
+    g.x=p.x-state.dragging.dx;g.y=p.y-state.dragging.dy;
+    const el=layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]');
+    if(el){el.style.left=g.x+"px";el.style.top=g.y+"px";}
+  }
+}
+function endPointer(e){
+  if(e && state.panning && e.pointerId!==undefined && e.pointerId!==state.panning.pointerId)return;
+  if(e && state.dragging && e.pointerId!==undefined && e.pointerId!==state.dragging.pointerId)return;
+  if(state.panning){state.panning=null;viewport.classList.remove("panning");}
+  if(state.dragging){
+    const g=state.islands.get(state.dragging.key);if(g)g.manual=true;
+    const el=layer.querySelector(".island.dragging");
+    if(el){el.classList.remove("dragging");el.classList.add("manual");const mode=el.querySelector(".island-mode");if(mode)mode.textContent="MANUAL";}
+    state.dragging=null;
+  }
+}
 viewport.addEventListener("pointerdown",startPan);
 viewport.addEventListener("pointermove",movePointer);
 viewport.addEventListener("pointerup",endPointer);viewport.addEventListener("pointercancel",endPointer);
-layer.addEventListener("pointerdown",e=>{const header=e.target.closest(".island-header");const island=e.target.closest(".island");if(!header||!island||e.button!==0)return;e.preventDefault();const key=island.dataset.key,g=state.islands.get(key),p=screenToWorld(e.clientX,e.clientY);state.dragging={key,dx:p.x-g.x,dy:p.y-g.y};island.classList.add("dragging");island.setPointerCapture?.(e.pointerId);});
+viewport.addEventListener("lostpointercapture",endPointer);
+window.addEventListener("pointerup",endPointer);window.addEventListener("pointercancel",endPointer);
+document.addEventListener("dragstart",e=>e.preventDefault());
+layer.addEventListener("pointerdown",e=>{const header=e.target.closest(".island-header");const island=e.target.closest(".island");if(!header||!island||e.button!==0)return;e.preventDefault();const key=island.dataset.key,g=state.islands.get(key),p=screenToWorld(e.clientX,e.clientY);state.dragging={pointerId:e.pointerId,key,dx:p.x-g.x,dy:p.y-g.y};island.classList.add("dragging");try{island.setPointerCapture(e.pointerId);}catch{}});
 
 viewport.addEventListener("wheel",e=>{e.preventDefault();const rect=viewport.getBoundingClientRect();setZoom(state.zoom*(e.deltaY<0?1.1:1/1.1),e.clientX-rect.left,e.clientY-rect.top);},{passive:false});
 $("#zoom-in").addEventListener("click",()=>setZoom(state.zoom*1.18));$("#zoom-out").addEventListener("click",()=>setZoom(state.zoom/1.18));
