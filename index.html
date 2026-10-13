@@ -16,7 +16,7 @@
   <div class="toolbar-actions"><label class="cluster-label" for="cluster-tag">Emphasize tag</label><select class="cluster-select" id="cluster-tag" aria-label="Choose a tag to reform the island layout"><option value="">No tag emphasis</option></select><button class="tool-button" id="add-test-lists" type="button" title="Add a repeatable set of sample rankings">＋ Test lists</button><button class="primary-button" id="create-ranking" type="button">＋ Add ranking</button></div>
 </header>
 <main class="world">
-  <div class="canvas-help"><span class="help-icon">↔</span> Drag empty space to move around <span class="help-sep">·</span> Scroll to zoom <span class="help-sep">·</span> Drag an island to place it</div>
+  <div class="canvas-help"><span class="help-icon">↔</span> Drag empty space to move around <span class="help-sep">·</span> Scroll to zoom</div>
   <div class="canvas-viewport" id="canvas-viewport" aria-label="Ranking canvas">
     <div class="canvas-world" id="canvas-world">
       <div class="world-origin" aria-hidden="true"></div>
@@ -24,7 +24,6 @@
     </div>
     <div class="canvas-empty" id="canvas-empty"><div class="empty-orbit"><span>R</span><i></i><i></i><i></i></div><h1>Your world is empty</h1><p>Create a ranking to start your first island. Rankings attract each other through shared tags. Emphasize a tag to strengthen those relationships.</p><button class="primary-button" id="empty-create" type="button">＋ Create your first ranking</button></div>
     <div class="zoom-controls"><button id="zoom-in" type="button" aria-label="Zoom in">＋</button><span id="zoom-level">100%</span><button id="zoom-out" type="button" aria-label="Zoom out">−</button><button id="reset-view" type="button" aria-label="Reset view" title="Reset view">⌖</button></div>
-    <div class="canvas-legend"><span class="legend-dot auto-dot"></span> Auto-organized <span class="legend-dot manual-dot"></span> Manually placed</div>
   </div>
 </main>
 <dialog class="modal" id="create-modal" aria-labelledby="modal-title">
