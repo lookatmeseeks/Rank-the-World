@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#111318">
+<meta name="description" content="Create, customise, and share rankings of the things you love."><title>Rank the World</title>
+<link rel="stylesheet" href="./styles.css"><script src="./app.js" defer></script>
+</head>
+<body>
+<div class="app-shell">
+<aside class="sidebar" aria-label="Main navigation">
+<a class="brand" href="./" aria-label="Rank the World home"><span class="brand-mark" aria-hidden="true">R</span><span class="brand-name">Rank the World</span></a>
+<div class="sidebar-section"><p class="section-label">WORKSPACE</p><a class="nav-item active" href="#rankings"><span class="nav-icon" aria-hidden="true">▦</span> My rankings</a><a class="nav-item disabled" href="#discover" aria-disabled="true"><span class="nav-icon" aria-hidden="true">⌕</span> Discover <span class="soon-label">LATER</span></a></div>
+<div class="sidebar-bottom"><div class="connection-indicator"><span class="status-dot"></span><span id="connection-label">Database not connected</span></div><p class="sidebar-note">Your ranking space. Your rules.</p></div>
+</aside>
+<main class="main-content" id="rankings">
+<header class="topbar"><div class="breadcrumbs"><span>Workspace</span><span class="crumb-divider">/</span><strong>My rankings</strong></div><div class="topbar-actions"><span class="avatar" aria-label="Guest profile">G</span></div></header>
+<section class="welcome-section"><div><p class="eyebrow">YOUR PERSONAL RANKING SPACE</p><h1>Rank what matters <span>to you.</span></h1><p class="welcome-copy">Build tier lists for anything — anime openings, characters, games, music, memorable moments, and everything in between.</p></div><button class="primary-button" id="create-ranking" type="button"><span aria-hidden="true">＋</span> Create ranking</button></section>
+<section class="stats-row" aria-label="Workspace overview"><div class="stat-card"><span class="stat-label">YOUR RANKINGS</span><strong id="ranking-count">0</strong><span class="stat-footnote">Your collection starts here</span></div><div class="stat-card"><span class="stat-label">LAYOUT</span><strong>Tier lists</strong><span class="stat-footnote">Custom tiers and item positions</span></div><div class="stat-card"><span class="stat-label">SHARING</span><strong>Link-based</strong><span class="stat-footnote">Collaborative editing planned</span></div></section>
+<section class="rankings-section"><div class="section-heading"><div><h2>Your rankings</h2><p>Everything you create will live here.</p></div><div class="view-switch" aria-label="View mode"><button class="view-button selected" type="button" aria-pressed="true" title="Grid view">▦</button><button class="view-button" type="button" aria-pressed="false" title="List view" disabled>☰</button></div></div>
+<div class="empty-state" id="empty-state"><div class="empty-art" aria-hidden="true"><div class="mini-tier tier-s"><b>S</b><i></i><i></i><i></i></div><div class="mini-tier tier-a"><b>A</b><i></i><i></i></div><div class="mini-tier tier-b"><b>B</b><i></i></div></div><h3>Your next favourite ranking starts here</h3><p>Create a tier list, give it a name, and start sorting the things you love.</p><button class="secondary-button" id="empty-create" type="button">＋ Create your first ranking</button></div>
+<div class="ranking-grid" id="ranking-grid" hidden></div></section>
+<footer class="page-footer"><span>RANK THE WORLD</span><span>Made for the things you love.</span></footer>
+</main></div>
+<dialog class="modal" id="create-modal" aria-labelledby="modal-title"><form id="create-form" method="dialog"><div class="modal-heading"><div><p class="eyebrow">NEW PROJECT</p><h2 id="modal-title">Create a ranking</h2></div><button class="icon-button" type="button" id="close-modal" aria-label="Close">×</button></div>
+<label for="ranking-title">Ranking name</label><input id="ranking-title" name="title" maxlength="100" placeholder="e.g. Best anime openings" required>
+<label for="ranking-description">Description <span class="optional">(optional)</span></label><textarea id="ranking-description" name="description" rows="3" maxlength="300" placeholder="What are you ranking?"></textarea>
+<div class="modal-note">This is an initial interface preview. Saving to Supabase will be connected in the next setup stage.</div><div class="modal-actions"><button class="secondary-button" type="button" id="cancel-modal">Cancel</button><button class="primary-button" type="submit">Create ranking</button></div></form></dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body></html>
