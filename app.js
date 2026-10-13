@@ -26,9 +26,13 @@ function groupRankings() {
     return { key, items, tags, title: tags.length ? tags.slice(0,3).join(" · ") + (tags.length>3 ? " +" + (tags.length-3) : "") : "Unsorted", manual: false };
   });
 }
-function islandSize(group) { return { w: Math.max(275, Math.min(350, group.items.length > 3 ? 330 : 300)), h: 105 + group.items.length*57 + (group.tags.length?31:0) }; }
+function islandSize(group) {
+  const columns = group.items.length > 1 ? 2 : 1;
+  const rows = Math.ceil(group.items.length / columns);
+  return { w: columns === 2 ? 670 : 320, h: 86 + rows * 218 + (group.tags.length ? 28 : 0) };
+}
 function getIslandPosition(key, w, h, taken) {
-  const gap=75, step=360;
+  const gap=100, step=780;
   // Spiral outward from the origin until a clear rectangle is found.
   for(let ring=0;ring<100;ring++){
     const candidates=[];
@@ -75,22 +79,34 @@ function render() {
     const emblem=createNode("div","island-emblem",g.tags.length?g.tags[0].slice(0,1).toUpperCase():"◇");
     emblem.style.color=COLORS[Math.abs(hash(g.key))%COLORS.length];
     const titleWrap=createNode("div","island-title-wrap");
-    titleWrap.append(createNode("h2","island-title",g.title),createNode("div","island-subtitle",g.items.length+" ranking"+(g.items.length===1?"":"s")+" in this island"));
+    titleWrap.append(createNode("h2","island-title",g.title),createNode("div","island-subtitle",g.items.length+" visible ranking"+(g.items.length===1?"":" grids")));
     const mode=createNode("span","island-mode",g.manual?"MANUAL":"AUTO");
     header.append(emblem,titleWrap,mode); island.append(header);
-    const nodes=createNode("div","island-rankings");
+    const boards=createNode("div","island-rankings");
+    boards.style.gridTemplateColumns=g.items.length>1?"repeat(2, minmax(0, 1fr))":"minmax(0, 1fr)";
     g.items.forEach(r=>{
-      const btn=createNode("button","ranking-node");btn.type="button";btn.dataset.rankingId=r.id;
-      const icon=createNode("span","ranking-icon","▤"),info=createNode("span","ranking-info");
-      info.append(createNode("div","ranking-name",r.title));
-      if(r.description)info.append(createNode("div","ranking-description",r.description));
-      btn.append(icon,info,createNode("span","ranking-arrow","›"));nodes.append(btn);
+      const board=createNode("article","ranking-board");
+      board.dataset.rankingId=r.id;
+      const boardHeader=createNode("div","board-header");
+      boardHeader.append(createNode("h3","board-title",r.title));
+      if(r.description)boardHeader.append(createNode("p","board-description",r.description));
+      board.append(boardHeader);
+      const tierGrid=createNode("div","tier-grid");
+      [["S","#ef7777"],["A","#e9a45f"],["B","#e6cf6d"],["C","#80c99b"],["D","#83b6e9"]].forEach(([label,color])=>{
+        const row=createNode("div","tier-row");
+        const tier=createNode("div","tier-label",label);tier.style.background=color;
+        const slots=createNode("div","tier-slots");
+        for(let i=0;i<3;i++)slots.append(createNode("span","tier-slot"));
+        row.append(tier,slots);tierGrid.append(row);
+      });
+      board.append(tierGrid);
+      boards.append(board);
     });
-    island.append(nodes);
+    island.append(boards);
     const footer=createNode("div","island-footer"),tagWrap=createNode("div","island-tags");
     g.tags.slice(0,4).forEach(t=>tagWrap.append(createNode("span","tag","# "+t)));
-    if(!g.tags.length)tagWrap.append(createNode("span","island-empty","Add tags to join an island"));
-    footer.append(tagWrap,createNode("span","island-count",g.items.length+" total"));island.append(footer);
+    if(!g.tags.length)tagWrap.append(createNode("span","island-empty","Untagged · its own island"));
+    footer.append(tagWrap,createNode("span","island-count",g.items.length+" grids"));island.append(footer);
     layer.append(island);
   });
   applyTransform();
@@ -107,7 +123,7 @@ viewport.addEventListener("pointerdown",startPan);
 viewport.addEventListener("pointermove",movePointer);
 viewport.addEventListener("pointerup",endPointer);viewport.addEventListener("pointercancel",endPointer);
 layer.addEventListener("pointerdown",e=>{const header=e.target.closest(".island-header");const island=e.target.closest(".island");if(!header||!island||e.button!==0)return;e.preventDefault();const key=island.dataset.key,g=state.islands.get(key),p=screenToWorld(e.clientX,e.clientY);state.dragging={key,dx:p.x-g.x,dy:p.y-g.y};island.classList.add("dragging");island.setPointerCapture?.(e.pointerId);});
-layer.addEventListener("click",e=>{const btn=e.target.closest("[data-ranking-id]");if(!btn)return;const r=state.rankings.find(x=>x.id===btn.dataset.rankingId);if(!r)return;state.activeRanking=r.id;$("#detail-title").textContent=r.title;$("#detail-description").textContent=r.description||"No description added.";const tags=$("#detail-tags");tags.replaceChildren();r.tags.forEach(t=>tags.append(createNode("span","tag","# "+t)));openDialog(detail);});
+
 viewport.addEventListener("wheel",e=>{e.preventDefault();const rect=viewport.getBoundingClientRect();setZoom(state.zoom*(e.deltaY<0?1.1:1/1.1),e.clientX-rect.left,e.clientY-rect.top);},{passive:false});
 $("#zoom-in").addEventListener("click",()=>setZoom(state.zoom*1.18));$("#zoom-out").addEventListener("click",()=>setZoom(state.zoom/1.18));
 $("#reset-view").addEventListener("click",()=>{state.zoom=1;state.panX=0;state.panY=0;applyTransform();});
