@@ -52,9 +52,8 @@ function simulateLayout() {
     const alpha=Math.max(0.025,1-ticks/240);
     for(let i=0;i<nodes.length;i++){
       const a=nodes[i];
-      if(a.manual)continue;
-      // Weak gravity keeps the landscape in a navigable area without forming a rigid grid.
-      a.vx+=(-a.x)*0.0008*alpha;a.vy+=(-a.y)*0.0008*alpha;
+      // Manually placed rankings stay pinned but still influence their neighbors.
+      if(!a.manual){a.vx+=(-a.x)*0.0008*alpha;a.vy+=(-a.y)*0.0008*alpha;}
       for(let j=i+1;j<nodes.length;j++){
         const b=nodes[j],dx=b.x-a.x,dy=b.y-a.y;
         const dist=Math.max(1,Math.hypot(dx,dy)),ux=dx/dist,uy=dy/dist;
@@ -64,11 +63,11 @@ function simulateLayout() {
           const target=selected?365:455;
           const strength=selected?0.018:0.0065;
           const force=(dist-target)*strength*alpha;
-          a.vx+=ux*force;a.vy+=uy*force;
+          if(!a.manual){a.vx+=ux*force;a.vy+=uy*force;}
           if(!b.manual){b.vx-=ux*force;b.vy-=uy*force;}
         } else {
           const minDist=440, force=Math.max(0,minDist-dist)*0.025*alpha;
-          a.vx-=ux*force;a.vy-=uy*force;
+          if(!a.manual){a.vx-=ux*force;a.vy-=uy*force;}
           if(!b.manual){b.vx+=ux*force;b.vy+=uy*force;}
         }
         // Collision padding prevents boards from overlapping even when several tags attract them.
@@ -79,8 +78,7 @@ function simulateLayout() {
           if(!b.manual){b.vx+=ux*force;b.vy+=uy*force;}
         }
       }
-      a.vx*=0.82;a.vy*=0.82;
-      a.x+=a.vx;a.y+=a.vy;
+      if(!a.manual){a.vx*=0.82;a.vy*=0.82;a.x+=a.vx;a.y+=a.vy;}
     }
     nodes.forEach(g=>{
       const el=layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]');
