@@ -105,32 +105,73 @@ function arrangeIslands(groups, animate=true) {
 }
 function animateIslands(groups) {
   const elements=groups.map(g=>layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]'));
-  elements.forEach((el,i)=>{
+  elements.forEach(el=>{
     if(!el)return;
+    const tilt=(Math.random()-.5)*12;
     el.style.left=(-160)+"px";el.style.top=(-130)+"px";
     el.style.opacity="0";
-    el.style.transform="scale(.88)";
+    el.style.transform="scale(.68) rotate("+tilt+"deg)";
     el.style.transition="none";
   });
-  // Force the initial centered positions to be painted before animating outward.
   state.animationFrame=requestAnimationFrame(()=>{
     groups.forEach((g,i)=>{
       const el=elements[i];if(!el)return;
       const rankIndex=state.rankings.findIndex(r=>String(r.id)===String(g.items[0].id));
-      const delay=(state.rankings.length-1-rankIndex)*65;
-      el.style.transition="left 850ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, top 850ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, opacity 380ms ease "+delay+"ms, transform 650ms cubic-bezier(.2,.75,.25,1) "+delay+"ms";
+      const delay=(state.rankings.length-1-rankIndex)*65+Math.random()*65;
+      el.style.transition="left 850ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, top 850ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, opacity 320ms ease "+delay+"ms, transform 620ms cubic-bezier(.25,1.55,.5,1) "+delay+"ms";
       el.style.left=g.targetX+"px";el.style.top=g.targetY+"px";
-      el.style.opacity="1";el.style.transform="scale(1)";
+      el.style.opacity="1";el.style.transform="scale(1) rotate(0deg)";
     });
+    const strings=layer.querySelector(".tag-strings");
+    if(strings)requestAnimationFrame(()=>{strings.style.opacity="1";});
     state.animationFrame=null;
   });
 }
 function createNode(tag, className, text) { const el=document.createElement(tag); if(className)el.className=className; if(text!==undefined)el.textContent=text; return el; }
+function createTagStrings(groups) {
+  const svgNS="http://www.w3.org/2000/svg";
+  const svg=document.createElementNS(svgNS,"svg");
+  svg.classList.add("tag-strings");
+  svg.setAttribute("aria-hidden","true");
+  svg.style.cssText="position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none;opacity:0;transition:opacity 650ms ease 500ms;";
+  const seen=new Set();
+  for(let i=0;i<groups.length;i++){
+    for(let j=i+1;j<groups.length;j++){
+      const a=groups[i],b=groups[j];
+      const shared=a.items[0].tags.filter(t=>b.items[0].tags.some(u=>tagKey(t)===tagKey(u)));
+      if(!shared.length)continue;
+      // One strand per pair keeps the graph legible; its color identifies one shared tag.
+      const tag=shared.sort((x,y)=>x.localeCompare(y))[0];
+      const pair=a.key+"|"+b.key;
+      if(seen.has(pair))continue;seen.add(pair);
+      const ax=a.targetX+a.w/2,ay=a.targetY+a.h/2;
+      const bx=b.targetX+b.w/2,by=b.targetY+b.h/2;
+      const dx=bx-ax,dy=by-ay,dist=Math.max(1,Math.hypot(dx,dy));
+      const ux=dx/dist,uy=dy/dist;
+      const edge=(ux,uy)=>Math.min((a.w/2)/Math.max(.001,Math.abs(ux)),(a.h/2)/Math.max(.001,Math.abs(uy)));
+      const ea=edge(ux,uy),eb=Math.min((b.w/2)/Math.max(.001,Math.abs(ux)),(b.h/2)/Math.max(.001,Math.abs(uy)));
+      const x1=ax+ux*ea,y1=ay+uy*ea,x2=bx-ux*eb,y2=by-uy*eb;
+      const bend=Math.min(65,dist*.12)*(i%2===0?1:-1);
+      const cx=(x1+x2)/2-uy*bend,cy=(y1+y2)/2+ux*bend;
+      const color=COLORS[Math.abs(hash(tagKey(tag)))%COLORS.length];
+      const shadow=document.createElementNS(svgNS,"path");
+      shadow.setAttribute("d",`M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`);
+      shadow.setAttribute("fill","none");shadow.setAttribute("stroke","#0b0c10");shadow.setAttribute("stroke-width","5");shadow.setAttribute("stroke-linecap","round");shadow.setAttribute("opacity",".72");
+      const strand=document.createElementNS(svgNS,"path");
+      strand.setAttribute("d",`M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`);
+      strand.setAttribute("fill","none");strand.setAttribute("stroke",color);strand.setAttribute("stroke-width","2");strand.setAttribute("stroke-linecap","round");strand.setAttribute("stroke-dasharray","5 5");strand.setAttribute("opacity",".82");
+      svg.append(shadow,strand);
+    }
+  }
+  return seen.size?svg:null;
+}
 function render() {
   const groups=groupRankings(); arrangeIslands(groups, true);
   $("#ranking-count").textContent=state.rankings.length+" ranking"+(state.rankings.length===1?"":"s");
   $("#canvas-empty").hidden=state.rankings.length>0;
   layer.replaceChildren();
+  const strings=createTagStrings(groups);
+  if(strings) layer.append(strings);
   groups.forEach(g=>{
     const island=createNode("section","island"+(g.manual?" manual":"")+(g.cluster?" tag-cluster":" single-ranking"),undefined);
     island.dataset.key=g.key; island.style.left=g.x+"px"; island.style.top=g.y+"px"; island.style.width=g.w+"px";
