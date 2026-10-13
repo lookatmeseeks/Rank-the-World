@@ -441,6 +441,66 @@ function addTestSet(){
 }
 $("#add-test-lists").addEventListener("click",addTestSet);
 
+function addLargeTestSet(){
+  const anime=[
+    ["Naruto","Ninja","Action"],["One Piece","Pirates","Adventure"],["Hunter x Hunter","Nen","Adventure"],
+    ["Frieren: Beyond Journey's End","Fantasy","Magic"],["Fullmetal Alchemist: Brotherhood","Alchemy","Fantasy"],
+    ["Jujutsu Kaisen","Curses","Action"],["Attack on Titan","Dark Fantasy","War"],
+    ["Cowboy Bebop","Space","Sci-Fi"],["Studio Ghibli Films","Animation","Fantasy"],
+    ["JoJo's Bizarre Adventure","Supernatural","Action"],["Mob Psycho 100","Psychic","Comedy"],
+    ["Death Note","Thriller","Mystery"]
+  ];
+  const games=[
+    ["Baldur's Gate 3","RPG","Fantasy"],["Elden Ring","Soulslike","Fantasy"],["Minecraft","Sandbox","Building"],
+    ["The Witcher 3","RPG","Fantasy"],["Stardew Valley","Simulation","Cozy"],
+    ["Final Fantasy XIV","MMORPG","Fantasy"],["The Legend of Zelda","Adventure","Fantasy"],
+    ["Portal","Puzzle","Sci-Fi"],["Hades","Roguelike","Mythology"],["Mass Effect","RPG","Sci-Fi"]
+  ];
+  const music=[
+    ["Orchestral Game Soundtracks","Soundtrack","Gaming"],["Anime Opening Themes","Openings","Anime"],
+    ["Rock Albums","Rock","Albums"],["Electronic Music","Electronic","Production"],
+    ["Hip-Hop Albums","Hip-Hop","Lyrics"],["Video Game Boss Themes","Soundtrack","Gaming"],
+    ["Movie Soundtracks","Soundtrack","Film"],["Progressive Rock","Rock","Composition"]
+  ];
+  const animeTypes=[
+    ["Characters","Characters","Storytelling"],["Villains","Villains","Characters"],
+    ["Best Story Arcs","Story Arcs","Writing"],["Opening Themes","Openings","Music"]
+  ];
+  const gameTypes=[
+    ["Characters","Characters","Storytelling"],["Bosses and Enemies","Bosses","Combat"],
+    ["Worlds and Locations","Worldbuilding","Exploration"],["Soundtracks","Soundtrack","Music"]
+  ];
+  const musicTypes=[
+    ["Artists and Composers","Artists","Music"],["Standout Tracks","Tracks","Soundtrack"],
+    ["Style and Production","Production","Composition"]
+  ];
+  const samples=[];
+  anime.forEach(([name,genre,shared])=>animeTypes.forEach(([kind,t1,t2])=>samples.push({
+    title:name+" — "+kind,description:"Sample anime ranking for layout and tag-relationship testing.",
+    tags:["Anime",genre,shared,t1,t2].filter((v,i,a)=>a.indexOf(v)===i)
+  })));
+  games.forEach(([name,genre,shared])=>gameTypes.forEach(([kind,t1,t2])=>samples.push({
+    title:name+" — "+kind,description:"Sample game ranking for layout and tag-relationship testing.",
+    tags:["Video Games",genre,shared,t1,t2].filter((v,i,a)=>a.indexOf(v)===i)
+  })));
+  music.forEach(([name,genre,shared])=>musicTypes.forEach(([kind,t1,t2])=>samples.push({
+    title:name+" — "+kind,description:"Sample music ranking for layout and tag-relationship testing.",
+    tags:["Music",genre,shared,t1,t2].filter((v,i,a)=>a.indexOf(v)===i)
+  })));
+  let added=0;
+  const existing=new Set(state.rankings.map(r=>r.title.toLocaleLowerCase()));
+  samples.forEach(sample=>{
+    if(existing.has(sample.title.toLocaleLowerCase()))return;
+    state.rankings.push({...sample,id:String(state.nextId++)});
+    existing.add(sample.title.toLocaleLowerCase());added++;
+  });
+  if(!added){showToast("The large test set is already on the canvas.");return;}
+  render();
+  showToast("Added "+added+" varied test rankings. Total: "+state.rankings.length+".");
+}
+$("#add-100-test-lists").addEventListener("click",addLargeTestSet);
+
+
 $("#close-modal").addEventListener("click",()=>closeDialog(modal));$("#cancel-modal").addEventListener("click",()=>closeDialog(modal));
 modal.addEventListener("click",e=>{if(e.target===modal)closeDialog(modal);});
 form.addEventListener("submit",e=>{e.preventDefault();const title=titleInput.value.trim();if(!title){titleInput.focus();return;}const id=form.dataset.editId;if(id){const r=state.rankings.find(x=>x.id===id);if(!r)return;r.title=title;r.description=descInput.value.trim();r.tags=cleanTags(tagsInput.value);delete form.dataset.editId;$("#modal-title").textContent="Create a ranking";form.querySelector('[type="submit"]').textContent="Create ranking";closeDialog(modal);render();showToast("Ranking updated; islands are reforming by tag relationships.");return;}state.rankings.push({id:String(state.nextId++),title,description:descInput.value.trim(),tags:cleanTags(tagsInput.value)});closeDialog(modal);render();showToast("Ranking added; the islands are forming.");});
