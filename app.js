@@ -136,9 +136,11 @@ function animateIslands(groups, slowAnimation=false) {
   if(state.animationFrame) cancelAnimationFrame(state.animationFrame);
   const elements=groups.map(g=>layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]'));
   const width=320,height=260,gap=24;
-  const launchInterval=slowAnimation?720:520;
-  const speed=slowAnimation?205:260;
-  const spring=1.45,damping=.84;
+  // Give each boat enough time to clear the crowded launch area before
+  // the next one enters; otherwise simultaneous center overlap creates a cross.
+  const launchInterval=slowAnimation?1050:820;
+  const speed=slowAnimation?260:330;
+  const spring=1.9,damping=.86;
   const bodies=groups.map((g,i)=>{
     const el=elements[i];
     if(!el)return null;
@@ -188,20 +190,27 @@ function animateIslands(groups, slowAnimation=false) {
         const dy=(b.y+height/2)-(a.y+height/2);
         const ox=width+gap-Math.abs(dx),oy=height+gap-Math.abs(dy);
         if(ox<=0||oy<=0)continue;
-        let nx=0,ny=0,penetration=0;
-        const centerDistance=Math.hypot(dx,dy);
-        if(centerDistance<80) {
-          // When several boats share the launch point, separate each pair
-          // according to their distinct destinations, not a common radial axis.
-          const tx=(b.g.targetX-a.g.targetX),ty=(b.g.targetY-a.g.targetY);
-          const length=Math.max(1,Math.hypot(tx,ty));
-          nx=tx/length;ny=ty/length;
-          penetration=Math.min(ox,oy);
-        } else if(ox<oy) {
-          nx=Math.sign(dx);penetration=ox;
+        // Use a smooth radial/elliptical collision field rather than choosing
+        // only the horizontal or vertical axis. Axis-only resolution is what
+        // makes the whole crowd spread into a cross.
+        const rx=(width+gap)/2,ry=(height+gap)/2;
+        const nxRaw=dx/rx,nyRaw=dy/ry;
+        const normalizedDistance=Math.hypot(nxRaw,nyRaw);
+        if(normalizedDistance>=2)continue;
+        let nx,ny;
+        if(normalizedDistance<0.001) {
+          // At the exact spawn point, choose a pair-specific direction derived
+          // from both destinations, so every boat does not push on one axis.
+          nxRaw=(b.g.targetX-a.g.targetX)/rx;
+          nyRaw=(b.g.targetY-a.g.targetY)/ry;
+          const n=Math.max(.001,Math.hypot(nxRaw,nyRaw));
+          nx=nxRaw/n;ny=nyRaw/n;
         } else {
-          ny=Math.sign(dy);penetration=oy;
+          nx=nxRaw/normalizedDistance;
+          ny=nyRaw/normalizedDistance;
         }
+        const overlap=2-normalizedDistance;
+        const penetration=overlap*Math.min(rx,ry)*.72;
         const aMoving=!a.settled,bMoving=!b.settled;
         // A moving boat gives way only slightly; the settled shoreline absorbs
         // most of the displacement and then springs back to close the wake.
@@ -210,12 +219,12 @@ function animateIslands(groups, slowAnimation=false) {
         const aShare=aMoving?(bMoving?.5:.38):(bMoving?.62:.5);
         const bShare=bMoving?(aMoving?.5:.38):(aMoving?.62:.5);
         const total=aShare+bShare;
-        const moveA=penetration*aShare/total*.62;
-        const moveB=penetration*bShare/total*.62;
+        const moveA=penetration*aShare/total*.42;
+        const moveB=penetration*bShare/total*.42;
         a.x-=nx*moveA;a.y-=ny*moveA;b.x+=nx*moveB;b.y+=ny*moveB;
-        const impulse=Math.min(95,penetration*2.1);
-        if(aMoving){a.vx-=nx*impulse*.32;a.vy-=ny*impulse*.32;}
-        if(bMoving){b.vx+=nx*impulse*.32;b.vy+=ny*impulse*.32;}
+        const impulse=Math.min(70,penetration*1.25);
+        if(aMoving){a.vx-=nx*impulse*.22;a.vy-=ny*impulse*.22;}
+        if(bMoving){b.vx+=nx*impulse*.22;b.vy+=ny*impulse*.22;}
       }
     }
     active.forEach(b=>{
