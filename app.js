@@ -105,10 +105,22 @@ function arrangeIslands(groups, animate=true) {
   if(!hasSelected){
     // The scoring above already applies shared-tag attraction across all rankings.
   }
+  // Use a golden-angle spiral when no tag is emphasized. This distributes
+  // destinations around the center instead of letting random launch angles bias
+  // the final layout toward one side. Later rankings naturally occupy wider orbits.
+  if(!hasSelected){
+    const goldenAngle=Math.PI*(3-Math.sqrt(5));
+    const radialStep=width+gap+18;
+    groups.forEach((g,i)=>{
+      const angle=rotation+i*goldenAngle+(Math.random()-.5)*.16;
+      const radius=i===0?0:radialStep*Math.sqrt(i);
+      g.targetX=Math.cos(angle)*radius-width/2;
+      g.targetY=Math.sin(angle)*radius-height/2;
+      g.spawnAngle=angle;
+    });
+  }
   groups.forEach(g=>{
-    const angle=Math.random()*Math.PI*2;
-    g.spawnAngle=angle;
-    g.x=Math.cos(angle)*18-width/2;g.y=Math.sin(angle)*18-height/2;
+    g.x=-width/2;g.y=-height/2;
   });
   state.islands=new Map(groups.map(g=>[g.key,g]));
 }
@@ -126,15 +138,12 @@ function animateIslands(groups, slowAnimation=false) {
     groups.forEach((g,i)=>{
       const el=elements[i];if(!el)return;
       const rankIndex=state.rankings.findIndex(r=>String(r.id)===String(g.items[0].id));
-      // Fire rankings one at a time from the center, each along its own random radial angle.
-      const delay=i*(slowAnimation?170:115)+Math.random()*(slowAnimation?80:65);
-      const moveDuration=slowAnimation?1550:850, popDuration=slowAnimation?1050:620, fadeDuration=slowAnimation?650:320;
+      // Let each ranking become readable before the next one launches.
+      const delay=i*(slowAnimation?520:380)+Math.random()*(slowAnimation?100:70);
+      const moveDuration=slowAnimation?1850:1350, popDuration=slowAnimation?1250:900, fadeDuration=slowAnimation?650:450;
       el.style.transition="left "+moveDuration+"ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, top "+moveDuration+"ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, opacity "+fadeDuration+"ms ease "+delay+"ms, transform "+popDuration+"ms cubic-bezier(.25,1.55,.5,1) "+delay+"ms";
-      const angle=Number.isFinite(g.spawnAngle)?g.spawnAngle:Math.random()*Math.PI*2;
-      const startRadius=slowAnimation?42:28;
-      el.style.left=(g.targetX+Math.cos(angle)*startRadius)+"px";
-      el.style.top=(g.targetY+Math.sin(angle)*startRadius)+"px";
-      // Force layout so the radial starting point is committed before the shot-out transition.
+      el.style.left=(-160)+"px";el.style.top=(-130)+"px";
+      // Commit the center position before launching toward the assigned radial destination.
       void el.offsetWidth;
       el.style.left=g.targetX+"px";el.style.top=g.targetY+"px";
       el.style.opacity="1";el.style.transform="scale(1) rotate(0deg)";
@@ -145,8 +154,8 @@ function animateIslands(groups, slowAnimation=false) {
       requestAnimationFrame(()=>{
         strings.querySelectorAll('path[data-role="strand"]').forEach(path=>path.setAttribute("stroke-dashoffset","0"));
         const began=performance.now();
-        const itemDelay=slowAnimation?170:115;
-        const total=(slowAnimation?1550:850)+Math.max(0,groups.length-1)*itemDelay+(slowAnimation?80:65);
+        const itemDelay=slowAnimation?520:380;
+        const total=(slowAnimation?1850:1350)+Math.max(0,groups.length-1)*itemDelay+(slowAnimation?100:70);
         let lastGeometryUpdate=0;
         const follow=now=>{
           // Around 30 Hz keeps dense SVG networks from starving island movement.
