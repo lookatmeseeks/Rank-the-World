@@ -126,11 +126,11 @@ function animateIslands(groups, slowAnimation=false) {
       const a=active[i],b=active[j];
       const dx=(b.x+b.w/2)-(a.x+a.w/2),dy=(b.y+b.h/2)-(a.y+a.h/2),dist=Math.hypot(dx,dy);
       const aNewer=a.order>b.order,bNewer=b.order>a.order;
-      if(dist>1&&dist<245){
+      if(dist>1&&dist<430){
         const newer=aNewer?a:b,older=aNewer?b:a;
         if(!newer.settled&&older.settled){
           const ux=((older.x+older.w/2)-(newer.x+newer.w/2))/dist,uy=((older.y+older.h/2)-(newer.y+newer.h/2))/dist;
-          const impulse=(1-dist/245)*48*dt;older.vx+=ux*impulse;older.vy+=uy*impulse;
+          const impulse=(1-dist/430)*48*dt;older.vx+=ux*impulse;older.vy+=uy*impulse;
         }
       }
       const ox=(a.w+b.w)/2+padding-Math.abs(dx),oy=(a.h+b.h)/2+padding-Math.abs(dy);
