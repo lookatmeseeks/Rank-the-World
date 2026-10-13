@@ -20,7 +20,7 @@
 /* Graph-like landscape: independent visible boards; a chosen tag only clusters direct matches. */
 .cluster-label{font-size:11px;color:#9da3b4;white-space:nowrap}
 .cluster-select{height:39px;max-width:180px;padding:0 28px 0 10px;border:1px solid #393d49;border-radius:9px;background:#242731;color:#e2e4ec;font:inherit;font-size:11px}
-.island.single-ranking{width:320px!important;padding:0;border:0;border-radius:9px;background:transparent;box-shadow:none;backdrop-filter:none;overflow:visible}
+.island.single-ranking{width:320px!important;padding:7px;border:1px solid #303440;border-radius:12px;background:#17192055;box-shadow:none;backdrop-filter:none;overflow:visible}
 .island.single-ranking .island-header{align-items:center;margin-bottom:7px;padding:0 3px;gap:8px}
 .island.single-ranking .island-emblem{width:25px;height:25px;flex-basis:25px;border-radius:7px;font-size:11px}
 .island.single-ranking .island-title{font-size:12px}
