@@ -15,3 +15,19 @@
 .tier-slot{display:block;min-width:0;min-height:20px;border:1px dashed #414654;border-radius:3px;background:#252832}
 .island-footer{margin-top:10px;padding-top:8px}
 @media(max-width:700px){.island{padding:10px}.ranking-board{padding:7px}.tier-row{grid-template-columns:24px minmax(0,1fr)}}
+
+
+/* Graph-like landscape: independent visible boards; a chosen tag only clusters direct matches. */
+.cluster-label{font-size:11px;color:#9da3b4;white-space:nowrap}
+.cluster-select{height:39px;max-width:180px;padding:0 28px 0 10px;border:1px solid #393d49;border-radius:9px;background:#242731;color:#e2e4ec;font:inherit;font-size:11px}
+.island.single-ranking{width:320px!important;padding:0;border:0;border-radius:9px;background:transparent;box-shadow:none;backdrop-filter:none;overflow:visible}
+.island.single-ranking .island-header{align-items:center;margin-bottom:7px;padding:0 3px;gap:8px}
+.island.single-ranking .island-emblem{width:25px;height:25px;flex-basis:25px;border-radius:7px;font-size:11px}
+.island.single-ranking .island-title{font-size:12px}
+.island.single-ranking .island-mode{font-size:8px}
+.island.single-ranking .island-rankings{display:block}
+.island.single-ranking .ranking-board{width:100%;padding:8px;background:#1b1d25;border-color:#363b48;box-shadow:0 9px 24px #0003}
+.island.single-ranking .island-footer{margin:5px 0 0;padding:0 3px;border:0;justify-content:flex-start}
+.island.tag-cluster{width:670px!important;padding:13px;border:1px solid #3a3e4d;border-radius:14px;background:#171920dd;box-shadow:0 14px 38px #0002}
+.island.tag-cluster .island-rankings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media(max-width:700px){.toolbar{gap:6px}.cluster-label{display:none}.cluster-select{max-width:105px;height:36px;padding-left:6px;font-size:10px}.island.single-ranking{width:290px!important}.island.tag-cluster{width:610px!important}}
