@@ -175,6 +175,7 @@ function createTagStrings(groups, slowAnimation=false) {
       shadow.setAttribute("stroke-width","5");
       shadow.setAttribute("opacity",".72");
       strand.dataset.role="strand";
+      strand.setAttribute("pathLength","1");
       strand.setAttribute("stroke",color);
       strand.setAttribute("stroke-width","2");
       strand.setAttribute("opacity",".9");
@@ -196,15 +197,34 @@ function updateTagStringPaths(groups, svg) {
     const y=parseFloat(getComputedStyle(el).top)||0;
     return {x,y,w:el.offsetWidth||320,h:el.offsetHeight||260,cx:x+(el.offsetWidth||320)/2,cy:y+(el.offsetHeight||260)/2};
   };
-  const anchor=(r,other)=>{
-    const dx=other.cx-r.cx,dy=other.cy-r.cy;
-    const scale=1/Math.max(Math.abs(dx)/(r.w/2)||0,Math.abs(dy)/(r.h/2)||0,0.0001);
-    return {x:r.cx+dx*scale,y:r.cy+dy*scale};
+  const closestAnchors=(a,b)=>{
+    const overlapTop=Math.max(a.y,b.y),overlapBottom=Math.min(a.y+a.h,b.y+b.h);
+    const overlapLeft=Math.max(a.x,b.x),overlapRight=Math.min(a.x+a.w,b.x+b.w);
+    const gapX=Math.max(0,b.x-(a.x+a.w),a.x-(b.x+b.w));
+    const gapY=Math.max(0,b.y-(a.y+a.h),a.y-(b.y+b.h));
+    if(gapX>0 && overlapBottom>=overlapTop){
+      const y=Math.max(overlapTop,Math.min(overlapBottom,(a.cy+b.cy)/2));
+      return b.cx>a.cx?[{x:a.x+a.w,y},{x:b.x,y}]:[{x:a.x,y},{x:b.x+b.w,y}];
+    }
+    if(gapY>0 && overlapRight>=overlapLeft){
+      const x=Math.max(overlapLeft,Math.min(overlapRight,(a.cx+b.cx)/2));
+      return b.cy>a.cy?[{x,y:a.y+a.h},{x,y:b.y}]:[{x,y:a.y},{x,y:b.y+b.h}];
+    }
+    if(gapX>0 && gapY>0){
+      return [
+        {x:b.cx>a.cx?a.x+a.w:a.x,y:b.cy>a.cy?a.y+a.h:a.y},
+        {x:b.cx>a.cx?b.x:b.x+b.w,y:b.cy>a.cy?b.y:b.y+b.h}
+      ];
+    }
+    const dx=b.cx-a.cx,dy=b.cy-a.cy;
+    const scaleA=1/Math.max(Math.abs(dx)/(a.w/2),Math.abs(dy)/(a.h/2),0.0001);
+    const scaleB=1/Math.max(Math.abs(dx)/(b.w/2),Math.abs(dy)/(b.h/2),0.0001);
+    return [{x:a.cx+dx*scaleA,y:a.cy+dy*scaleA},{x:b.cx-dx*scaleB,y:b.cy-dy*scaleB}];
   };
   svg.querySelectorAll("path[data-a]").forEach(path=>{
     const a=rectFor(path.dataset.a),b=rectFor(path.dataset.b);
     if(!a||!b)return;
-    const p1=anchor(a,b),p2=anchor(b,a);
+    const [p1,p2]=closestAnchors(a,b);
     const dx=p2.x-p1.x,dy=p2.y-p1.y,dist=Math.hypot(dx,dy);
     const slack=Math.min(72,18+dist*.065);
     const cx=(p1.x+p2.x)/2,cy=(p1.y+p2.y)/2+slack;
