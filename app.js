@@ -100,7 +100,7 @@ function arrangeIslands(groups, animate=true) {
 }
 function animateIslands(groups, slowAnimation=false) {
   if(state.animationFrame)cancelAnimationFrame(state.animationFrame);
-  const launchInterval=slowAnimation?1150:850,maxSpeed=slowAnimation?235:285;
+  const launchInterval=slowAnimation?1150/3:850/3,maxSpeed=slowAnimation?235:285;
   const hasEmphasis=!!state.clusterTag;
   const launchOrder=hasEmphasis
     ?groups.filter(g=>!g.items[0].tags.some(t=>tagKey(t)===tagKey(state.clusterTag)))
@@ -112,8 +112,12 @@ function animateIslands(groups, slowAnimation=false) {
     const tx=g.targetX,ty=g.targetY;
     const angle=i*2.399963229728653+(Math.random()-.5)*.45,radius=i===0?0:Math.min(34,8+i*1.2);
     const x=Math.cos(angle)*radius-w/2,y=Math.sin(angle)*radius-h/2;
+    const isEmphasized=hasEmphasis&&g.items[0].tags.some(t=>tagKey(t)===tagKey(state.clusterTag));
+    const launchBoost=hasEmphasis&&!isEmphasized?210:0;
+    const targetLength=Math.hypot(tx,ty)||1;
+    const vx=tx/targetLength*launchBoost,vy=ty/targetLength*launchBoost;
     el.style.left=x+"px";el.style.top=y+"px";el.style.opacity="0";el.style.transform="scale(.94)";el.style.transition="none";
-    return {g,el,x,y,tx,ty,vx:0,vy:0,launched:false,settled:false,launchAt:i*launchInterval,order:i,w,h};
+    return {g,el,x,y,tx,ty,vx,vy,launched:false,settled:false,launchAt:i*launchInterval,order:i,w,h};
   }).filter(Boolean);
   const startTime=performance.now();let lastTime=startTime,launchedCount=0;const padding=18;
   function clampSpeed(b){const s=Math.hypot(b.vx,b.vy);if(s>maxSpeed){b.vx=b.vx/s*maxSpeed;b.vy=b.vy/s*maxSpeed;}}
