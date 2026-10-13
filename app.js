@@ -38,9 +38,32 @@ function arrangeIslands(groups, animate=true) {
   const rotation=Math.random()*Math.PI*2;
   const selected=state.clusterTag;
   const hasSelected=!!selected;
-  const core=hasSelected?groups.filter(g=>g.items[0].tags.some(t=>tagKey(t)===tagKey(selected))):[];
-  const outer=hasSelected?groups.filter(g=>!g.items[0].tags.some(t=>tagKey(t)===tagKey(selected))):[...groups];
-  const placed=[];
+  // With no emphasized tag, place rankings on complete concentric rings.
+  // Each ring gets an even angular distribution; later rings launch after inner rings.
+  // This also bypasses the expensive pairwise candidate search for large test sets.
+  if(!hasSelected){
+    const ringGap=width+gap+16;
+    let ring=0,index=0;
+    while(index<groups.length){
+      const radius=380+ring*ringGap;
+      const capacity=Math.max(1,Math.floor((Math.PI*2*radius)/ringGap));
+      const count=Math.min(capacity,groups.length-index);
+      const phase=rotation+ring*2.399963229728653;
+      for(let j=0;j<count;j++,index++){
+        const g=groups[index];
+        const angle=phase+j*(Math.PI*2/count);
+        g.w=width;g.h=height;g.vx=0;g.vy=0;
+        g.targetX=Math.cos(angle)*radius-width/2;
+        g.targetY=Math.sin(angle)*radius-height/2;
+        g.spawnAngle=angle;
+      }
+      ring++;
+    }
+    groups.forEach(g=>{g.x=-width/2;g.y=-height/2;});
+    state.islands=new Map(groups.map(g=>[g.key,g]));
+    return;
+  }
+
   function sharedCount(a,b){
     return a.items[0].tags.filter(t=>b.items[0].tags.some(u=>tagKey(t)===tagKey(u))).length;
   }
@@ -104,20 +127,6 @@ function arrangeIslands(groups, animate=true) {
   // Without an emphasized tag, retain a radial layout but still group shared tags.
   if(!hasSelected){
     // The scoring above already applies shared-tag attraction across all rankings.
-  }
-  // Use a golden-angle spiral when no tag is emphasized. This distributes
-  // destinations around the center instead of letting random launch angles bias
-  // the final layout toward one side. Later rankings naturally occupy wider orbits.
-  if(!hasSelected){
-    const goldenAngle=Math.PI*(3-Math.sqrt(5));
-    const radialStep=width+gap+18;
-    groups.forEach((g,i)=>{
-      const angle=rotation+i*goldenAngle+(Math.random()-.5)*.16;
-      const radius=i===0?0:radialStep*Math.sqrt(i);
-      g.targetX=Math.cos(angle)*radius-width/2;
-      g.targetY=Math.sin(angle)*radius-height/2;
-      g.spawnAngle=angle;
-    });
   }
   groups.forEach(g=>{
     g.x=-width/2;g.y=-height/2;
@@ -309,7 +318,7 @@ function render(slowAnimation=false) {
 function hash(str){let h=0;for(let i=0;i<str.length;i++)h=((h<<5)-h)+str.charCodeAt(i)|0;return h;}
 function applyTransform(){world.style.transform="translate("+((viewport.clientWidth/2)+state.panX)+"px,"+((viewport.clientHeight/2)+state.panY)+"px) scale("+state.zoom+")";$("#zoom-level").textContent=Math.round(state.zoom*100)+"%";}
 function screenToWorld(x,y){const rect=viewport.getBoundingClientRect();return {x:(x-rect.left-rect.width/2-state.panX)/state.zoom,y:(y-rect.top-rect.height/2-state.panY)/state.zoom};}
-function setZoom(next, cx=viewport.clientWidth/2, cy=viewport.clientHeight/2){const before=screenToWorld(cx+viewport.getBoundingClientRect().left,cy+viewport.getBoundingClientRect().top);state.zoom=Math.max(.25,Math.min(2.1,next));const rect=viewport.getBoundingClientRect();state.panX=cx-rect.width/2-before.x*state.zoom;state.panY=cy-rect.height/2-before.y*state.zoom;applyTransform();}
+function setZoom(next, cx=viewport.clientWidth/2, cy=viewport.clientHeight/2){const before=screenToWorld(cx+viewport.getBoundingClientRect().left,cy+viewport.getBoundingClientRect().top);state.zoom=Math.max(.03,Math.min(2.1,next));const rect=viewport.getBoundingClientRect();state.panX=cx-rect.width/2-before.x*state.zoom;state.panY=cy-rect.height/2-before.y*state.zoom;applyTransform();}
 function startPan(e){
   if(e.button!==0||e.target.closest(".island")||e.target.closest("button"))return;
   e.preventDefault();
