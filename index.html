@@ -13,7 +13,7 @@
 <header class="toolbar">
   <a class="brand" href="./"><span class="brand-mark">R</span><span>Rank the World</span></a>
   <div class="toolbar-center"><span class="live-dot"></span><span id="workspace-label">Shared world</span><span class="toolbar-divider"></span><span id="ranking-count">0 rankings</span></div>
-  <div class="toolbar-actions"><button class="tool-button" id="add-test-lists" type="button" title="Add a repeatable set of sample rankings">＋ Test lists</button><button class="primary-button" id="create-ranking" type="button">＋ Add ranking</button></div>
+  <div class="toolbar-actions"><button class="tool-button" id="add-test-lists" type="button" title="Add a repeatable set of sample rankings">＋ Test lists</button><button class="tool-button" id="add-100-test-lists" type="button" title="Add 100+ varied sample rankings for layout and performance testing">＋ 100 test lists</button><button class="primary-button" id="create-ranking" type="button">＋ Add ranking</button></div>
 </header>
   <aside class="force-sidebar" id="force-sidebar" aria-label="Layout force settings">
     <div class="force-heading"><div><p class="eyebrow">LAYOUT ENGINE</p><h2>Tag forces</h2></div><button class="icon-button" id="toggle-forces" type="button" aria-label="Collapse layout settings">−</button></div>
@@ -21,16 +21,16 @@
     <div class="force-rebuild"><label for="cluster-tag">Emphasize tag <span class="rebuild-mark">REBUILDS LAYOUT</span></label><select class="cluster-select" id="cluster-tag" aria-label="Choose a tag to rebuild the island layout"><option value="">No tag emphasis</option></select><p class="force-hint">Changes which rankings form the central group and which orbit outside it.</p></div>
     <div class="force-controls">
       <label for="force-core-spacing"><span>Center spacing</span><output id="force-core-spacing-value">300 px</output></label><input id="force-core-spacing" type="range" min="240" max="420" step="10" value="300">
-      <p class="force-hint">Distance between rankings carrying the emphasized tag.</p>
+      <p class="force-hint">Only with a tag emphasized: spreads or compresses rankings that match it inside the central group.</p>
       <label for="force-outer-offset"><span>Outer offset</span><output id="force-outer-offset-value">1000 px</output></label><input id="force-outer-offset" type="range" min="600" max="1800" step="50" value="1000">
-      <p class="force-hint">Minimum orbit distance from the center.</p>
+      <p class="force-hint">Controls the gap from the central group to nonmatching rankings. With no tag emphasized, it shifts the whole radial layout.</p>
       <label for="force-ring-spacing"><span>Orbit spacing</span><output id="force-ring-spacing-value">420 px</output></label><input id="force-ring-spacing" type="range" min="300" max="800" step="25" value="420">
-      <p class="force-hint">How far successive outer rings sit from each other.</p>
+      <p class="force-hint">Controls the distance between outer rings. It does not set the gap between every pair of rankings.</p>
       <label for="force-tag-pull"><span>Shared-tag attraction</span><output id="force-tag-pull-value">70%</output></label><input id="force-tag-pull" type="range" min="0" max="100" step="5" value="70">
-      <p class="force-hint">Higher values bring rankings with shared tags closer together.</p>
+      <p class="force-hint">Changes the preferred distance only for pairs that share one or more tags. Higher values pull those pairs closer.</p>
       <label for="force-separation"><span>Unrelated separation</span><output id="force-separation-value">850 px</output></label><input id="force-separation" type="range" min="500" max="1400" step="50" value="850">
-      <p class="force-hint">Preferred distance between rankings without shared tags.</p>
-      <label for="force-randomness"><span>Layout variation</span><output id="force-randomness-value">35%</output></label><input id="force-randomness" type="range" min="0" max="100" step="5" value="35"><p class="force-hint"><span class="rebuild-mark">REBUILDS LAYOUT</span> Affects randomness on the next layout rebuild, not current spacing.</p>
+      <p class="force-hint">Sets the preferred distance for pairs with no tags in common. It is the baseline before shared-tag attraction.</p>
+      <label for="force-randomness"><span>Layout variation</span><output id="force-randomness-value">35%</output></label><input id="force-randomness" type="range" min="0" max="100" step="5" value="35"><p class="force-hint"><span class="rebuild-mark">REBUILDS LAYOUT</span> Changes the randomness used when rankings are placed during a full rebuild; it does not move the current layout.</p>
     </div>
     <div class="force-actions"><button class="secondary-button" id="reset-forces" type="button">Reset</button><button class="primary-button" id="export-forces" type="button">Export preset</button></div>
     <label class="import-preset" for="import-forces">Import preset file<input id="import-forces" type="file" accept=".json,application/json"></label>
