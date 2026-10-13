@@ -4,7 +4,7 @@ const $ = (selector) => document.querySelector(selector);
 const viewport = $("#canvas-viewport"), world = $("#canvas-world"), layer = $("#islands-layer");
 const modal = $("#create-modal"), form = $("#create-form"), titleInput = $("#ranking-title"), descInput = $("#ranking-description"), tagsInput = $("#ranking-tags");
 const detail = $("#ranking-modal"), toast = $("#toast");
-const state = { rankings: [], islands: new Map(), zoom: 1, panX: 0, panY: 0, nextId: 1, dragging: null, panning: null, activeRanking: null };
+const state = { rankings: [], islands: new Map(), zoom: 1, panX: 0, panY: 0, nextId: 1, dragging: null, panning: null, activeRanking: null, clusterTag: "" };
 const COLORS = ["#b7a7ff","#7ed9c4","#f0be85","#f18ca7","#8ec7f3","#d4a0ef"];
 function showToast(message) { toast.textContent = message; toast.classList.add("visible"); clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.classList.remove("visible"), 2800); }
 function openDialog(d) { if (d.showModal) d.showModal(); else d.setAttribute("open", ""); }
@@ -12,27 +12,37 @@ function closeDialog(d) { if (d.close) d.close(); else d.removeAttribute("open")
 function cleanTags(raw) { return [...new Set(raw.split(",").map(t => t.trim().replace(/^#+/, "")).filter(Boolean).map(t => t.slice(0, 32)))].slice(0, 8); }
 function tagKey(tag) { return tag.trim().toLocaleLowerCase(); }
 function groupRankings() {
-  // A ranking can have several tags; matching tags merge islands into a single group.
-  const parent = new Map(state.rankings.map(r => [r.id, r.id]));
-  const find = id => { let p = parent.get(id); while (p !== parent.get(p)) p = parent.get(p); let cur=id; while(parent.get(cur)!==p){const next=parent.get(cur);parent.set(cur,p);cur=next;} return p; };
-  const union = (a,b) => { const ra=find(a), rb=find(b); if(ra!==rb) parent.set(rb,ra); };
-  const owner = new Map();
-  state.rankings.forEach(r => r.tags.forEach(tag => { const k=tagKey(tag); if(owner.has(k)) union(r.id,owner.get(k)); else owner.set(k,r.id); }));
-  const groups = new Map();
-  state.rankings.forEach(r => { const root=find(r.id); if(!groups.has(root)) groups.set(root,[]); groups.get(root).push(r); });
-  return [...groups.values()].map(items => {
-    const tags = [...new Map(items.flatMap(r=>r.tags).map(t=>[tagKey(t),t])).values()];
-    const key = items.some(r=>r.tags.length) ? "tag:"+tags.map(tagKey).sort().join("|") : "ranking:"+items[0].id;
-    return { key, items, tags, title: tags.length ? tags.slice(0,3).join(" · ") + (tags.length>3 ? " +" + (tags.length-3) : "") : "Unsorted", manual: false };
+  // A selected tag controls proximity, never merges all transitively connected tags.
+  const matchingTags = [...new Map(state.rankings.flatMap(r=>r.tags).map(t=>[tagKey(t),t])).values()].sort((a,b)=>a.localeCompare(b));
+  const selector=$("#cluster-tag");
+  if(selector){
+    const current=state.clusterTag;
+    selector.replaceChildren();
+    selector.append(new Option("No tag grouping",""));
+    matchingTags.forEach(t=>selector.append(new Option(t,t)));
+    if(matchingTags.some(t=>tagKey(t)===tagKey(current))) selector.value=matchingTags.find(t=>tagKey(t)===tagKey(current));
+    else { state.clusterTag=""; selector.value=""; }
+  }
+  const clusters=new Map();
+  state.rankings.forEach(r=>{
+    const selected=state.clusterTag && r.tags.some(t=>tagKey(t)===tagKey(state.clusterTag));
+    const key=selected ? "tag:"+tagKey(state.clusterTag) : "ranking:"+r.id;
+    if(!clusters.has(key)) clusters.set(key,[]);
+    clusters.get(key).push(r);
+  });
+  return [...clusters.values()].map(items=>{
+    const isCluster=items.length>1 && state.clusterTag && items.every(r=>r.tags.some(t=>tagKey(t)===tagKey(state.clusterTag)));
+    const tags=isCluster?[state.clusterTag]:items[0].tags;
+    return {key:isCluster?"tag:"+tagKey(state.clusterTag):"ranking:"+items[0].id,items,tags,title:isCluster?state.clusterTag:items[0].title,manual:false,cluster:!!isCluster};
   });
 }
 function islandSize(group) {
   const columns = group.items.length > 1 ? 2 : 1;
   const rows = Math.ceil(group.items.length / columns);
-  return { w: columns === 2 ? 670 : 320, h: 86 + rows * 218 + (group.tags.length ? 28 : 0) };
+  return { w: group.cluster ? 670 : 320, h: group.cluster ? 86 + rows * 218 + 28 : 250 };
 }
 function getIslandPosition(key, w, h, taken) {
-  const gap=100, step=780;
+  const gap=150, step=850;
   // Spiral outward from the origin until a clear rectangle is found.
   for(let ring=0;ring<100;ring++){
     const candidates=[];
@@ -73,17 +83,17 @@ function render() {
   $("#canvas-empty").hidden=state.rankings.length>0;
   layer.replaceChildren();
   groups.forEach(g=>{
-    const island=createNode("section","island"+(g.manual?" manual":""),undefined);
+    const island=createNode("section","island"+(g.manual?" manual":"")+(g.cluster?" tag-cluster":" single-ranking"),undefined);
     island.dataset.key=g.key; island.style.left=g.x+"px"; island.style.top=g.y+"px"; island.style.width=g.w+"px";
     const header=createNode("div","island-header");
     const emblem=createNode("div","island-emblem",g.tags.length?g.tags[0].slice(0,1).toUpperCase():"◇");
     emblem.style.color=COLORS[Math.abs(hash(g.key))%COLORS.length];
     const titleWrap=createNode("div","island-title-wrap");
-    titleWrap.append(createNode("h2","island-title",g.title),createNode("div","island-subtitle",g.items.length+" visible ranking"+(g.items.length===1?"":" grids")));
+    titleWrap.append(createNode("h2","island-title",g.title),createNode("div","island-subtitle",g.cluster?g.items.length+" rankings share this tag":"Visible tier list"));
     const mode=createNode("span","island-mode",g.manual?"MANUAL":"AUTO");
     header.append(emblem,titleWrap,mode); island.append(header);
     const boards=createNode("div","island-rankings");
-    boards.style.gridTemplateColumns=g.items.length>1?"repeat(2, minmax(0, 1fr))":"minmax(0, 1fr)";
+    boards.style.gridTemplateColumns=g.cluster?"repeat(2, minmax(0, 1fr))":"minmax(0, 1fr)";
     g.items.forEach(r=>{
       const board=createNode("article","ranking-board");
       board.dataset.rankingId=r.id;
@@ -104,9 +114,9 @@ function render() {
     });
     island.append(boards);
     const footer=createNode("div","island-footer"),tagWrap=createNode("div","island-tags");
-    g.tags.slice(0,4).forEach(t=>tagWrap.append(createNode("span","tag","# "+t)));
-    if(!g.tags.length)tagWrap.append(createNode("span","island-empty","Untagged · its own island"));
-    footer.append(tagWrap,createNode("span","island-count",g.items.length+" grids"));island.append(footer);
+    (g.cluster?g.tags:g.items[0].tags).slice(0,4).forEach(t=>tagWrap.append(createNode("span","tag","# "+t)));
+    if(!g.tags.length)tagWrap.append(createNode("span","island-empty","No tags"));
+    if(g.cluster){footer.append(tagWrap,createNode("span","island-count",g.items.length+" grids"));island.append(footer);} else {footer.append(tagWrap);island.append(footer);}
     layer.append(island);
   });
   applyTransform();
@@ -127,7 +137,7 @@ layer.addEventListener("pointerdown",e=>{const header=e.target.closest(".island-
 viewport.addEventListener("wheel",e=>{e.preventDefault();const rect=viewport.getBoundingClientRect();setZoom(state.zoom*(e.deltaY<0?1.1:1/1.1),e.clientX-rect.left,e.clientY-rect.top);},{passive:false});
 $("#zoom-in").addEventListener("click",()=>setZoom(state.zoom*1.18));$("#zoom-out").addEventListener("click",()=>setZoom(state.zoom/1.18));
 $("#reset-view").addEventListener("click",()=>{state.zoom=1;state.panX=0;state.panY=0;applyTransform();});
-$("#auto-arrange").addEventListener("click",autoArrange);
+$("#auto-arrange").addEventListener("click",autoArrange);\n$("#cluster-tag").addEventListener("change",e=>{state.clusterTag=e.target.value;state.islands.clear();render();showToast(state.clusterTag?"Clustered by tag: "+state.clusterTag:"Showing rankings as separate grids.");});
 function openCreate(){form.reset();openDialog(modal);setTimeout(()=>titleInput.focus(),30);}
 $("#create-ranking").addEventListener("click",openCreate);$("#empty-create").addEventListener("click",openCreate);
 $("#close-modal").addEventListener("click",()=>closeDialog(modal));$("#cancel-modal").addEventListener("click",()=>closeDialog(modal));
