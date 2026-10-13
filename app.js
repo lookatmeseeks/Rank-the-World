@@ -153,7 +153,7 @@ viewport.addEventListener("wheel",e=>{e.preventDefault();const rect=viewport.get
 $("#zoom-in").addEventListener("click",()=>setZoom(state.zoom*1.18));$("#zoom-out").addEventListener("click",()=>setZoom(state.zoom/1.18));
 $("#reset-view").addEventListener("click",()=>{state.zoom=1;state.panX=0;state.panY=0;applyTransform();});
 $("#auto-arrange").addEventListener("click",autoArrange);
-$("#cluster-tag").addEventListener("change",e=>{state.clusterTag=e.target.value;state.islands.clear();render();showToast(state.clusterTag?"Emphasizing tag: "+state.clusterTag:"Using all tags equally.");});
+$("#cluster-tag").addEventListener("change",e=>{state.clusterTag=e.target.value;render();showToast(state.clusterTag?"Emphasizing tag: "+state.clusterTag:"Using all tags equally.");});
 function openCreate(){form.reset();openDialog(modal);setTimeout(()=>titleInput.focus(),30);}
 $("#create-ranking").addEventListener("click",openCreate);$("#empty-create").addEventListener("click",openCreate);
 $("#close-modal").addEventListener("click",()=>closeDialog(modal));$("#cancel-modal").addEventListener("click",()=>closeDialog(modal));
