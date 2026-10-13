@@ -12,69 +12,85 @@ function closeDialog(d) { if (d.close) d.close(); else d.removeAttribute("open")
 function cleanTags(raw) { return [...new Set(raw.split(",").map(t => t.trim().replace(/^#+/, "")).filter(Boolean).map(t => t.slice(0, 32)))].slice(0, 8); }
 function tagKey(tag) { return tag.trim().toLocaleLowerCase(); }
 function groupRankings() {
-  // A selected tag controls proximity, never merges all transitively connected tags.
+  // Tags influence forces between individual rankings; they never merge rankings into a container.
   const matchingTags = [...new Map(state.rankings.flatMap(r=>r.tags).map(t=>[tagKey(t),t])).values()].sort((a,b)=>a.localeCompare(b));
   const selector=$("#cluster-tag");
   if(selector){
     const current=state.clusterTag;
     selector.replaceChildren();
-    selector.append(new Option("No tag grouping",""));
+    selector.append(new Option("No tag emphasis",""));
     matchingTags.forEach(t=>selector.append(new Option(t,t)));
     if(matchingTags.some(t=>tagKey(t)===tagKey(current))) selector.value=matchingTags.find(t=>tagKey(t)===tagKey(current));
     else { state.clusterTag=""; selector.value=""; }
   }
-  const clusters=new Map();
-  state.rankings.forEach(r=>{
-    const selected=state.clusterTag && r.tags.some(t=>tagKey(t)===tagKey(state.clusterTag));
-    const key=selected ? "tag:"+tagKey(state.clusterTag) : "ranking:"+r.id;
-    if(!clusters.has(key)) clusters.set(key,[]);
-    clusters.get(key).push(r);
-  });
-  return [...clusters.values()].map(items=>{
-    const isCluster=items.length>1 && state.clusterTag && items.every(r=>r.tags.some(t=>tagKey(t)===tagKey(state.clusterTag)));
-    const tags=isCluster?[state.clusterTag]:items[0].tags;
-    return {key:isCluster?"tag:"+tagKey(state.clusterTag):"ranking:"+items[0].id,items,tags,title:isCluster?state.clusterTag:items[0].title,manual:false,cluster:!!isCluster};
-  });
+  return state.rankings.map(r=>({
+    key:"ranking:"+r.id, items:[r], tags:r.tags, title:r.title,
+    manual:false, cluster:false
+  }));
 }
-function islandSize(group) {
-  const columns = group.items.length > 1 ? 2 : 1;
-  const rows = Math.ceil(group.items.length / columns);
-  return { w: group.cluster ? 670 : 320, h: group.cluster ? 86 + rows * 218 + 28 : 250 };
-}
-function getIslandPosition(key, w, h, taken) {
-  const gap=150, step=850;
-  // Spiral outward from the origin until a clear rectangle is found.
-  for(let ring=0;ring<100;ring++){
-    const candidates=[];
-    if(ring===0)candidates.push([0,0]);
-    else for(let x=-ring;x<=ring;x++){candidates.push([x*step,-ring*step]);candidates.push([x*step,ring*step]);}
-    for(let y=-ring+1;y<ring;y++){candidates.push([-ring*step,y*step]);candidates.push([ring*step,y*step]);}
-    for(const [x,y] of candidates){
-      const rect={x,y,w,h};
-      if(taken.every(p=>rect.x+rect.w+gap<=p.x||p.x+p.w+gap<=rect.x||rect.y+rect.h+gap<=p.y||p.y+p.h+gap<=rect.y)) return {x,y};
-    }
-  }
-  return {x:taken.length*step,y:0};
-}
+function islandSize(group) { return { w: 320, h: 260 }; }
 function preservePositions(groups) {
-  const old=state.islands, next=new Map(), occupied=[];
-  // Keep prior locations when the island key still exists, then place new groups into free space.
-  groups.forEach(g=>{const prior=old.get(g.key);if(prior){const size=islandSize(g);g.x=prior.x;g.y=prior.y;g.manual=prior.manual;g.w=size.w;g.h=size.h;}});
-  groups.filter(g=>g.manual).forEach(g=>occupied.push({x:g.x,y:g.y,w:g.w,h:g.h,key:g.key}));
-  groups.filter(g=>!g.manual&&old.has(g.key)).forEach(g=>occupied.push({x:g.x,y:g.y,w:g.w,h:g.h,key:g.key}));
-  groups.filter(g=>!old.has(g.key)).forEach(g=>{const size=islandSize(g),p=getIslandPosition(g.key,size.w,size.h,occupied);g.x=p.x;g.y=p.y;g.w=size.w;g.h=size.h;occupied.push({...p,w:size.w,h:size.h,key:g.key});});
-  // If a tag merge brings existing islands together, keep the merged island at one prior location and
-  // re-place only conflicting auto islands; manually placed islands remain where their owner left them.
-  const placed=[];
-  groups.forEach(g=>{
-    if(!g.w){const s=islandSize(g);g.w=s.w;g.h=s.h;}
-    if(placed.some(p=>!(g.x+g.w+55<=p.x||p.x+p.w+55<=g.x||g.y+g.h+55<=p.y||p.y+p.h+55<=g.y))){
-      const s=islandSize(g),p=getIslandPosition(g.key,s.w,s.h,placed);g.x=p.x;g.y=p.y;g.w=s.w;g.h=s.h;
+  const old=state.islands, next=new Map();
+  groups.forEach((g,i)=>{
+    const prior=old.get(g.key), size=islandSize(g);
+    if(prior){g.x=prior.x;g.y=prior.y;g.vx=prior.vx||0;g.vy=prior.vy||0;g.manual=prior.manual;}
+    else {
+      // Seed new rankings near the existing landscape, then let tag forces settle them.
+      const angle=i*2.399963229728653, radius=groups.length>1?180+Math.sqrt(i)*75:0;
+      g.x=Math.cos(angle)*radius;g.y=Math.sin(angle)*radius;g.vx=0;g.vy=0;g.manual=false;
     }
-    placed.push({x:g.x,y:g.y,w:g.w,h:g.h,key:g.key});
-    next.set(g.key,g);
+    g.w=size.w;g.h=size.h;next.set(g.key,g);
   });
   state.islands=next;
+}
+function simulateLayout() {
+  if(state.simFrame) cancelAnimationFrame(state.simFrame);
+  let ticks=0;
+  const nodes=[...state.islands.values()];
+  if(nodes.length<2)return;
+  function step(){
+    const alpha=Math.max(0.025,1-ticks/240);
+    for(let i=0;i<nodes.length;i++){
+      const a=nodes[i];
+      if(a.manual)continue;
+      // Weak gravity keeps the landscape in a navigable area without forming a rigid grid.
+      a.vx+=(-a.x)*0.0008*alpha;a.vy+=(-a.y)*0.0008*alpha;
+      for(let j=i+1;j<nodes.length;j++){
+        const b=nodes[j],dx=b.x-a.x,dy=b.y-a.y;
+        const dist=Math.max(1,Math.hypot(dx,dy)),ux=dx/dist,uy=dy/dist;
+        const shared=a.items[0].tags.filter(t=>b.items[0].tags.some(u=>tagKey(t)===tagKey(u)));
+        const selected=state.clusterTag && shared.some(t=>tagKey(t)===tagKey(state.clusterTag));
+        if(shared.length){
+          const target=selected?365:455;
+          const strength=selected?0.018:0.0065;
+          const force=(dist-target)*strength*alpha;
+          a.vx+=ux*force;a.vy+=uy*force;
+          if(!b.manual){b.vx-=ux*force;b.vy-=uy*force;}
+        } else {
+          const minDist=440, force=Math.max(0,minDist-dist)*0.025*alpha;
+          a.vx-=ux*force;a.vy-=uy*force;
+          if(!b.manual){b.vx+=ux*force;b.vy+=uy*force;}
+        }
+        // Collision padding prevents boards from overlapping even when several tags attract them.
+        const collision=365-dist;
+        if(collision>0){
+          const force=collision*0.035*alpha;
+          a.vx-=ux*force;a.vy-=uy*force;
+          if(!b.manual){b.vx+=ux*force;b.vy+=uy*force;}
+        }
+      }
+      a.vx*=0.82;a.vy*=0.82;
+      a.x+=a.vx;a.y+=a.vy;
+    }
+    nodes.forEach(g=>{
+      const el=layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]');
+      if(el){el.style.left=g.x+"px";el.style.top=g.y+"px";}
+    });
+    ticks++;
+    if(ticks<240)state.simFrame=requestAnimationFrame(step);
+    else state.simFrame=null;
+  }
+  state.simFrame=requestAnimationFrame(step);
 }
 function createNode(tag, className, text) { const el=document.createElement(tag); if(className)el.className=className; if(text!==undefined)el.textContent=text; return el; }
 function render() {
@@ -120,12 +136,13 @@ function render() {
     layer.append(island);
   });
   applyTransform();
+  simulateLayout();
 }
 function hash(str){let h=0;for(let i=0;i<str.length;i++)h=((h<<5)-h)+str.charCodeAt(i)|0;return h;}
 function applyTransform(){world.style.transform="translate("+((viewport.clientWidth/2)+state.panX)+"px,"+((viewport.clientHeight/2)+state.panY)+"px) scale("+state.zoom+")";$("#zoom-level").textContent=Math.round(state.zoom*100)+"%";}
 function screenToWorld(x,y){const rect=viewport.getBoundingClientRect();return {x:(x-rect.left-rect.width/2-state.panX)/state.zoom,y:(y-rect.top-rect.height/2-state.panY)/state.zoom};}
 function setZoom(next, cx=viewport.clientWidth/2, cy=viewport.clientHeight/2){const before=screenToWorld(cx+viewport.getBoundingClientRect().left,cy+viewport.getBoundingClientRect().top);state.zoom=Math.max(.25,Math.min(2.1,next));const rect=viewport.getBoundingClientRect();state.panX=cx-rect.width/2-before.x*state.zoom;state.panY=cy-rect.height/2-before.y*state.zoom;applyTransform();}
-function autoArrange(){state.islands.forEach(g=>g.manual=false);state.islands.clear();render();showToast("Islands automatically arranged by tags.");}
+function autoArrange(){state.islands.forEach(g=>g.manual=false);state.islands.clear();render();showToast("Rearranging rankings using tag relationships.");}
 function startPan(e){if(e.button!==0||e.target.closest(".island")||e.target.closest("button"))return;state.panning={x:e.clientX,y:e.clientY,px:state.panX,py:state.panY};viewport.classList.add("panning");viewport.setPointerCapture(e.pointerId);}
 function movePointer(e){if(state.panning){state.panX=state.panning.px+e.clientX-state.panning.x;state.panY=state.panning.py+e.clientY-state.panning.y;applyTransform();}else if(state.dragging){const p=screenToWorld(e.clientX,e.clientY),g=state.islands.get(state.dragging.key);if(!g)return;g.x=p.x-state.dragging.dx;g.y=p.y-state.dragging.dy;const el=layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]');if(el){el.style.left=g.x+"px";el.style.top=g.y+"px";}}}
 function endPointer(){if(state.panning){state.panning=null;viewport.classList.remove("panning");}if(state.dragging){const g=state.islands.get(state.dragging.key);if(g)g.manual=true;const el=layer.querySelector(".island.dragging");if(el)el.classList.remove("dragging");state.dragging=null;render();}}
@@ -138,7 +155,7 @@ viewport.addEventListener("wheel",e=>{e.preventDefault();const rect=viewport.get
 $("#zoom-in").addEventListener("click",()=>setZoom(state.zoom*1.18));$("#zoom-out").addEventListener("click",()=>setZoom(state.zoom/1.18));
 $("#reset-view").addEventListener("click",()=>{state.zoom=1;state.panX=0;state.panY=0;applyTransform();});
 $("#auto-arrange").addEventListener("click",autoArrange);
-$("#cluster-tag").addEventListener("change",e=>{state.clusterTag=e.target.value;state.islands.clear();render();showToast(state.clusterTag?"Clustered by tag: "+state.clusterTag:"Showing rankings as separate grids.");});
+$("#cluster-tag").addEventListener("change",e=>{state.clusterTag=e.target.value;state.islands.clear();render();showToast(state.clusterTag?"Emphasizing tag: "+state.clusterTag:"Using all tags equally.");});
 function openCreate(){form.reset();openDialog(modal);setTimeout(()=>titleInput.focus(),30);}
 $("#create-ranking").addEventListener("click",openCreate);$("#empty-create").addEventListener("click",openCreate);
 $("#close-modal").addEventListener("click",()=>closeDialog(modal));$("#cancel-modal").addEventListener("click",()=>closeDialog(modal));
