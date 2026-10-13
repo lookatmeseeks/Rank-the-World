@@ -124,7 +124,22 @@ function animateIslands(groups, slowAnimation=false) {
       el.style.opacity="1";el.style.transform="scale(1) rotate(0deg)";
     });
     const strings=layer.querySelector(".tag-strings");
-    if(strings)requestAnimationFrame(()=>{strings.style.opacity="1";});
+    if(strings){
+      updateTagStringPaths(groups,strings);
+      requestAnimationFrame(()=>{
+        strings.querySelectorAll('path[data-role="strand"]').forEach(path=>path.setAttribute("stroke-dashoffset","0"));
+        const began=performance.now();
+        const total=(slowAnimation?1550:850)+Math.max(0,...groups.map((g,i)=>{
+          const rankIndex=state.rankings.findIndex(r=>String(r.id)===String(g.items[0].id));
+          return (state.rankings.length-1-rankIndex)*(slowAnimation?125:65)+(slowAnimation?100:65);
+        }));
+        const follow=now=>{
+          updateTagStringPaths(groups,strings);
+          if(now-began<total+100)requestAnimationFrame(follow);
+        };
+        requestAnimationFrame(follow);
+      });
+    }
     state.animationFrame=null;
   });
 }
@@ -134,38 +149,69 @@ function createTagStrings(groups, slowAnimation=false) {
   const svg=document.createElementNS(svgNS,"svg");
   svg.classList.add("tag-strings");
   svg.setAttribute("aria-hidden","true");
-  svg.style.cssText="position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none;opacity:0;transition:opacity "+(slowAnimation?"1200ms ease 900ms":"650ms ease 500ms")+";";
+  svg.style.cssText="position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none;opacity:1;";
   const seen=new Set();
   for(let i=0;i<groups.length;i++){
     for(let j=i+1;j<groups.length;j++){
       const a=groups[i],b=groups[j];
-      // Connect rankings only when their first tag matches.
       const tagA=a.items[0].tags[0], tagB=b.items[0].tags[0];
       if(!tagA || !tagB || tagKey(tagA)!==tagKey(tagB))continue;
-      const tag=tagA;
       const pair=a.key+"|"+b.key;
-      if(seen.has(pair))continue;seen.add(pair);
-      const ax=a.targetX+a.w/2,ay=a.targetY+a.h/2;
-      const bx=b.targetX+b.w/2,by=b.targetY+b.h/2;
-      const dx=bx-ax,dy=by-ay,dist=Math.max(1,Math.hypot(dx,dy));
-      const ux=dx/dist,uy=dy/dist;
-      const edge=(ux,uy)=>Math.min((a.w/2)/Math.max(.001,Math.abs(ux)),(a.h/2)/Math.max(.001,Math.abs(uy)));
-      const ea=edge(ux,uy),eb=Math.min((b.w/2)/Math.max(.001,Math.abs(ux)),(b.h/2)/Math.max(.001,Math.abs(uy)));
-      const x1=ax+ux*ea,y1=ay+uy*ea,x2=bx-ux*eb,y2=by-uy*eb;
-      const bend=Math.min(65,dist*.12)*(i%2===0?1:-1);
-      const cx=(x1+x2)/2-uy*bend,cy=(y1+y2)/2+ux*bend;
+      if(seen.has(pair))continue;
+      seen.add(pair);
+      const tag=tagA;
       const color=COLORS[Math.abs(hash(tagKey(tag)))%COLORS.length];
       const shadow=document.createElementNS(svgNS,"path");
-      shadow.setAttribute("d",`M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`);
-      shadow.setAttribute("fill","none");shadow.setAttribute("stroke","#0b0c10");shadow.setAttribute("stroke-width","5");shadow.setAttribute("stroke-linecap","round");shadow.setAttribute("opacity",".72");
       const strand=document.createElementNS(svgNS,"path");
-      strand.setAttribute("d",`M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`);
-      strand.setAttribute("fill","none");strand.setAttribute("stroke",color);strand.setAttribute("stroke-width","2");strand.setAttribute("stroke-linecap","round");strand.setAttribute("stroke-dasharray","5 5");strand.setAttribute("opacity",".82");
+      [shadow,strand].forEach(path=>{
+        path.dataset.a=a.key;
+        path.dataset.b=b.key;
+        path.setAttribute("fill","none");
+        path.setAttribute("stroke-linecap","round");
+        path.setAttribute("vector-effect","non-scaling-stroke");
+      });
+      shadow.dataset.role="shadow";
+      shadow.setAttribute("stroke","#0b0c10");
+      shadow.setAttribute("stroke-width","5");
+      shadow.setAttribute("opacity",".72");
+      strand.dataset.role="strand";
+      strand.setAttribute("stroke",color);
+      strand.setAttribute("stroke-width","2");
+      strand.setAttribute("opacity",".9");
+      strand.setAttribute("stroke-dasharray","1");
+      strand.setAttribute("stroke-dashoffset","1");
+      strand.style.transition="stroke-dashoffset "+(slowAnimation?"1550ms":"850ms")+" cubic-bezier(.2,.75,.25,1)";
       svg.append(shadow,strand);
     }
   }
   return seen.size?svg:null;
 }
+function updateTagStringPaths(groups, svg) {
+  if(!svg)return;
+  const elements=new Map(groups.map(g=>[g.key,layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]')]));
+  const rectFor=key=>{
+    const el=elements.get(key);
+    if(!el)return null;
+    const x=parseFloat(getComputedStyle(el).left)||0;
+    const y=parseFloat(getComputedStyle(el).top)||0;
+    return {x,y,w:el.offsetWidth||320,h:el.offsetHeight||260,cx:x+(el.offsetWidth||320)/2,cy:y+(el.offsetHeight||260)/2};
+  };
+  const anchor=(r,other)=>{
+    const dx=other.cx-r.cx,dy=other.cy-r.cy;
+    const scale=1/Math.max(Math.abs(dx)/(r.w/2)||0,Math.abs(dy)/(r.h/2)||0,0.0001);
+    return {x:r.cx+dx*scale,y:r.cy+dy*scale};
+  };
+  svg.querySelectorAll("path[data-a]").forEach(path=>{
+    const a=rectFor(path.dataset.a),b=rectFor(path.dataset.b);
+    if(!a||!b)return;
+    const p1=anchor(a,b),p2=anchor(b,a);
+    const dx=p2.x-p1.x,dy=p2.y-p1.y,dist=Math.hypot(dx,dy);
+    const slack=Math.min(72,18+dist*.065);
+    const cx=(p1.x+p2.x)/2,cy=(p1.y+p2.y)/2+slack;
+    path.setAttribute("d",`M ${p1.x} ${p1.y} Q ${cx} ${cy} ${p2.x} ${p2.y}`);
+  });
+}
+
 function render(slowAnimation=false) {
   const groups=groupRankings(); arrangeIslands(groups, true);
   $("#ranking-count").textContent=state.rankings.length+" ranking"+(state.rankings.length===1?"":"s");
