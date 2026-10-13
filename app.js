@@ -106,9 +106,9 @@ function arrangeIslands(groups, animate=true) {
     // The scoring above already applies shared-tag attraction across all rankings.
   }
   groups.forEach(g=>{
-    const angle=rotation+Math.random()*Math.PI*2;
-    const radius=12+Math.random()*70;
-    g.x=Math.cos(angle)*radius-width/2;g.y=Math.sin(angle)*radius-height/2;
+    const angle=Math.random()*Math.PI*2;
+    g.spawnAngle=angle;
+    g.x=Math.cos(angle)*18-width/2;g.y=Math.sin(angle)*18-height/2;
   });
   state.islands=new Map(groups.map(g=>[g.key,g]));
 }
@@ -126,13 +126,16 @@ function animateIslands(groups, slowAnimation=false) {
     groups.forEach((g,i)=>{
       const el=elements[i];if(!el)return;
       const rankIndex=state.rankings.findIndex(r=>String(r.id)===String(g.items[0].id));
-      // Enter in small waves instead of launching every ranking at once.
-      // Each wave gets time to settle before the next one starts.
-      const waveSize=8;
-      const waveIndex=Math.floor(i/waveSize);
-      const delay=waveIndex*(slowAnimation?1750:1050)+(i%waveSize)*(slowAnimation?55:30)+Math.random()*(slowAnimation?35:20);
+      // Fire rankings one at a time from the center, each along its own random radial angle.
+      const delay=i*(slowAnimation?170:115)+Math.random()*(slowAnimation?80:65);
       const moveDuration=slowAnimation?1550:850, popDuration=slowAnimation?1050:620, fadeDuration=slowAnimation?650:320;
       el.style.transition="left "+moveDuration+"ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, top "+moveDuration+"ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, opacity "+fadeDuration+"ms ease "+delay+"ms, transform "+popDuration+"ms cubic-bezier(.25,1.55,.5,1) "+delay+"ms";
+      const angle=Number.isFinite(g.spawnAngle)?g.spawnAngle:Math.random()*Math.PI*2;
+      const startRadius=slowAnimation?42:28;
+      el.style.left=(g.targetX+Math.cos(angle)*startRadius)+"px";
+      el.style.top=(g.targetY+Math.sin(angle)*startRadius)+"px";
+      // Force layout so the radial starting point is committed before the shot-out transition.
+      void el.offsetWidth;
       el.style.left=g.targetX+"px";el.style.top=g.targetY+"px";
       el.style.opacity="1";el.style.transform="scale(1) rotate(0deg)";
     });
@@ -142,11 +145,8 @@ function animateIslands(groups, slowAnimation=false) {
       requestAnimationFrame(()=>{
         strings.querySelectorAll('path[data-role="strand"]').forEach(path=>path.setAttribute("stroke-dashoffset","0"));
         const began=performance.now();
-        const waveSize=8;
-        const waveDelay=slowAnimation?1750:1050;
-        const itemDelay=slowAnimation?55:30;
-        const total=(slowAnimation?1550:850)+Math.max(0,Math.floor((groups.length-1)/waveSize))*waveDelay+
-          Math.max(0,((groups.length-1)%waveSize))*itemDelay+(slowAnimation?35:20);
+        const itemDelay=slowAnimation?170:115;
+        const total=(slowAnimation?1550:850)+Math.max(0,groups.length-1)*itemDelay+(slowAnimation?80:65);
         let lastGeometryUpdate=0;
         const follow=now=>{
           // Around 30 Hz keeps dense SVG networks from starving island movement.
@@ -162,119 +162,12 @@ function animateIslands(groups, slowAnimation=false) {
 }
 function createNode(tag, className, text) { const el=document.createElement(tag); if(className)el.className=className; if(text!==undefined)el.textContent=text; return el; }
 function createTagStrings(groups, slowAnimation=false) {
-  const svgNS="http://www.w3.org/2000/svg";
-  const svg=document.createElementNS(svgNS,"svg");
-  svg.classList.add("tag-strings");
-  svg.setAttribute("aria-hidden","true");
-  svg.style.cssText="position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none;opacity:1;";
-  const seen=new Set();
-  for(let i=0;i<groups.length;i++){
-    for(let j=i+1;j<groups.length;j++){
-      const a=groups[i],b=groups[j];
-      const tagA=a.items[0].tags[0], tagB=b.items[0].tags[0];
-      if(!tagA || !tagB || tagKey(tagA)!==tagKey(tagB))continue;
-      const pair=a.key+"|"+b.key;
-      if(seen.has(pair))continue;
-      seen.add(pair);
-      const tag=tagA;
-      const color=COLORS[Math.abs(hash(tagKey(tag)))%COLORS.length];
-      const shadow=document.createElementNS(svgNS,"path");
-      const strand=document.createElementNS(svgNS,"path");
-      [shadow,strand].forEach(path=>{
-        path.dataset.a=a.key;
-        path.dataset.b=b.key;
-        path.setAttribute("fill","none");
-        path.setAttribute("stroke-linecap","round");
-        path.setAttribute("vector-effect","non-scaling-stroke");
-      });
-      shadow.dataset.role="shadow";
-      shadow.setAttribute("stroke","#0b0c10");
-      shadow.setAttribute("stroke-width","5");
-      shadow.setAttribute("opacity",".72");
-      strand.dataset.role="strand";
-      strand.setAttribute("pathLength","1");
-      strand.setAttribute("stroke",color);
-      strand.setAttribute("stroke-width","2");
-      strand.setAttribute("opacity",".9");
-      strand.setAttribute("stroke-dasharray","1");
-      strand.setAttribute("stroke-dashoffset","1");
-      strand.style.transition="stroke-dashoffset "+(slowAnimation?"1550ms":"850ms")+" cubic-bezier(.2,.75,.25,1)";
-      const dotA=document.createElementNS(svgNS,"circle");
-      const dotB=document.createElementNS(svgNS,"circle");
-      [[dotA,"a"],[dotB,"b"]].forEach(([dot,side])=>{
-        dot.dataset.a=a.key;
-        dot.dataset.b=b.key;
-        dot.dataset.endpoint=side;
-        dot.setAttribute("r","3");
-        dot.setAttribute("fill",color);
-        dot.setAttribute("stroke","#171920");
-        dot.setAttribute("stroke-width","1.5");
-      });
-      svg.append(shadow,strand,dotA,dotB);
-    }
-  }
-  return seen.size?svg:null;
+  // Tag strands are temporarily disabled while the layout and animation are stabilized.
+  return null;
 }
+
 function updateTagStringPaths(groups, svg) {
-  if(!svg)return;
-  // Read each island's geometry once per update instead of once per strand.
-  const elements=new Map(groups.map(g=>[g.key,layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]')]));
-  const rects=new Map();
-  elements.forEach((el,key)=>{
-    if(!el)return;
-    const x=parseFloat(getComputedStyle(el).left)||0;
-    const y=parseFloat(getComputedStyle(el).top)||0;
-    const w=el.offsetWidth||320,h=el.offsetHeight||260;
-    rects.set(key,{x,y,w,h,cx:x+w/2,cy:y+h/2});
-  });
-  const anchorCache=new Map();
-  const anchorsFor=(keyA,keyB)=>{
-    const cacheKey=keyA+"|"+keyB;
-    if(anchorCache.has(cacheKey))return anchorCache.get(cacheKey);
-    const a=rects.get(keyA),b=rects.get(keyB);
-    if(!a||!b)return null;
-    const overlapTop=Math.max(a.y,b.y),overlapBottom=Math.min(a.y+a.h,b.y+b.h);
-    const overlapLeft=Math.max(a.x,b.x),overlapRight=Math.min(a.x+a.w,b.x+b.w);
-    const gapX=Math.max(0,b.x-(a.x+a.w),a.x-(b.x+b.w));
-    const gapY=Math.max(0,b.y-(a.y+a.h),a.y-(b.y+b.h));
-    let result;
-    if(gapX>0 && overlapBottom>=overlapTop){
-      const y=Math.max(overlapTop,Math.min(overlapBottom,(a.cy+b.cy)/2));
-      result=b.cx>a.cx?[{x:a.x+a.w,y},{x:b.x,y}]:[{x:a.x,y},{x:b.x+b.w,y}];
-    } else if(gapY>0 && overlapRight>=overlapLeft){
-      const x=Math.max(overlapLeft,Math.min(overlapRight,(a.cx+b.cx)/2));
-      result=b.cy>a.cy?[{x,y:a.y+a.h},{x,y:b.y}]:[{x,y:a.y},{x,y:b.y+b.h}];
-    } else if(gapX>0 && gapY>0){
-      result=[
-        {x:b.cx>a.cx?a.x+a.w:a.x,y:b.cy>a.cy?a.y+a.h:a.y},
-        {x:b.cx>a.cx?b.x:b.x+b.w,y:b.cy>a.cy?b.y:b.y+b.h}
-      ];
-    } else {
-      const dx=b.cx-a.cx,dy=b.cy-a.cy;
-      const scaleA=1/Math.max(Math.abs(dx)/(a.w/2),Math.abs(dy)/(a.h/2),0.0001);
-      const scaleB=1/Math.max(Math.abs(dx)/(b.w/2),Math.abs(dy)/(b.h/2),0.0001);
-      result=[{x:a.cx+dx*scaleA,y:a.cy+dy*scaleA},{x:b.cx-dx*scaleB,y:b.cy-dy*scaleB}];
-    }
-    anchorCache.set(cacheKey,result);
-    anchorCache.set(keyB+"|"+keyA,[result[1],result[0]]);
-    return result;
-  };
-  svg.querySelectorAll("path[data-a]").forEach(path=>{
-    const anchors=anchorsFor(path.dataset.a,path.dataset.b);
-    if(!anchors)return;
-    const p1=anchors[0],p2=anchors[1];
-    const dx=p2.x-p1.x,dy=p2.y-p1.y,dist=Math.hypot(dx,dy);
-    const slack=Math.min(72,18+dist*.065);
-    const cx=(p1.x+p2.x)/2,cy=(p1.y+p2.y)/2+slack;
-    path.setAttribute("d","M "+p1.x+" "+p1.y+" Q "+cx+" "+cy+" "+p2.x+" "+p2.y);
-  });
-  svg.querySelectorAll("circle[data-endpoint]").forEach(dot=>{
-    const anchors=anchorsFor(dot.dataset.a,dot.dataset.b);
-    if(!anchors)return;
-    const point=dot.dataset.endpoint==="a"?anchors[0]:anchors[1];
-    dot.setAttribute("cx",point.x);
-    dot.setAttribute("cy",point.y);
-  });
+  // Tag strands are temporarily disabled.
 }
 
 function updateLayoutVisually(changedKey="") {
