@@ -35,102 +35,101 @@ function islandSize(group) { return { w: 320, h: 260 }; }
 function arrangeIslands(groups, animate=true) {
   if(state.animationFrame) cancelAnimationFrame(state.animationFrame);
   const width=320,height=260,gap=54;
-  const rotation=Math.random()*Math.PI*2;
   const selected=state.clusterTag;
   const hasSelected=!!selected;
-  // With no emphasized tag, place rankings on complete concentric rings.
-  // Each ring gets an even angular distribution; later rings launch after inner rings.
-  // This also bypasses the expensive pairwise candidate search for large test sets.
-  if(!hasSelected){
-    const ringGap=width+gap+16;
-    let ring=0,index=0;
-    while(index<groups.length){
-      const radius=380+ring*ringGap;
-      const capacity=Math.max(1,Math.floor((Math.PI*2*radius)/ringGap));
-      const count=Math.min(capacity,groups.length-index);
-      const phase=rotation+ring*2.399963229728653;
-      for(let j=0;j<count;j++,index++){
-        const g=groups[index];
-        const angle=phase+j*(Math.PI*2/count);
-        g.w=width;g.h=height;g.vx=0;g.vy=0;
-        g.targetX=Math.cos(angle)*radius-width/2;
-        g.targetY=Math.sin(angle)*radius-height/2;
-        g.spawnAngle=angle;
-      }
-      ring++;
-    }
-    groups.forEach(g=>{g.x=-width/2;g.y=-height/2;});
-    state.islands=new Map(groups.map(g=>[g.key,g]));
-    return;
-  }
+  const angleStep=Math.PI*2/144;
+  const sectorCounts=new Array(24).fill(0);
+  const placed=[];
+  const variation=Math.max(0,Math.min(1,forces.randomness/100));
+  const centerFirst=groups.find(g=>!hasSelected||g.items[0].tags.some(t=>tagKey(t)===tagKey(selected)));
+  const matching=hasSelected
+    ? groups.filter(g=>g.items[0].tags.some(t=>tagKey(t)===tagKey(selected)))
+    : groups.slice();
+  const nonmatching=hasSelected
+    ? groups.filter(g=>!g.items[0].tags.some(t=>tagKey(t)===tagKey(selected)))
+    : [];
+  // Grow from the center outwards. The irregular radius and angular-sector balancing
+  // create a lumpy island silhouette rather than concentric rings or a spiral.
+  const ordered=[];
+  if(centerFirst) ordered.push(centerFirst);
+  matching.filter(g=>g!==centerFirst).forEach(g=>ordered.push(g));
+  nonmatching.forEach(g=>ordered.push(g));
+  groups.splice(0,groups.length,...ordered);
 
-  function sharedCount(a,b){
-    return a.items[0].tags.filter(t=>b.items[0].tags.some(u=>tagKey(t)===tagKey(u))).length;
+  function sharedCount(a,b) {
+    const tags=a.items[0].tags;
+    return tags.filter(t=>b.items[0].tags.some(u=>tagKey(t)===tagKey(u))).length;
   }
-  function overlaps(cx,cy,other){
-    return Math.abs(cx-(other.targetX+width/2))<width+gap &&
-           Math.abs(cy-(other.targetY+height/2))<height+gap;
+  function intersects(cx,cy,other) {
+    const ox=other.targetX+width/2,oy=other.targetY+height/2;
+    return Math.abs(cx-ox)<width+gap && Math.abs(cy-oy)<height+gap;
   }
-  const variation=forces.randomness/100;
-  // The selected tag's rankings occupy a compact central cluster, with only enough spacing to avoid overlap.
-  core.forEach((g,i)=>{
+  function radialDistance(g) {
+    return Math.hypot(g.targetX+width/2,g.targetY+height/2);
+  }
+  ordered.forEach((g,index)=>{
     g.w=width;g.h=height;g.vx=0;g.vy=0;
-    let radius=i===0?0:Math.ceil(Math.sqrt(i))*forces.coreSpacing;
-    let angle=rotation+i*2.399963229728653+(Math.random()-.5)*variation*.5;
-    let cx=Math.cos(angle)*radius,cy=Math.sin(angle)*radius;
-    let tries=0;
-    while(placed.some(o=>overlaps(cx,cy,o))&&tries++<24){
-      radius+=Math.max(35,forces.coreSpacing*.2);cx=Math.cos(angle)*radius;cy=Math.sin(angle)*radius;
+    if(index===0) {
+      g.targetX=-width/2;g.targetY=-height/2;g.spawnAngle=0;
+      placed.push(g);return;
     }
-    g.targetX=cx-width/2;g.targetY=cy-height/2;placed.push(g);
-  });
-  // Nonmatching rankings are constrained to distant concentric rings. Shared tags
-  // influence angular placement, so related outer rankings orbit near one another.
-  outer.forEach((g,i)=>{
-    g.w=width;g.h=height;g.vx=0;g.vy=0;
+    const angleOffset=Math.random()*Math.PI*2;
+    const idealRadius=hasSelected && matching.includes(g)
+      ? Math.max(260,Math.sqrt(index)*Math.max(120,forces.coreSpacing*.72))
+      : 340+Math.sqrt(index)*Math.max(190,forces.separation*.34);
     let best=null,bestScore=Infinity;
-    const coreRadius=hasSelected&&core.length?Math.max(...core.map(p=>Math.hypot(p.targetX+width/2,p.targetY+height/2))):0;
-    const ringStart=hasSelected&&core.length?Math.max(forces.outerOffset,coreRadius+forces.outerOffset):Math.max(420,forces.outerOffset*.65);
-    const ringIndex=Math.floor(i/Math.max(8,Math.floor(8+variation*8)));
-    const targetRadius=ringStart+ringIndex*forces.ringSpacing;
-    const phase=rotation+i*2.399963229728653;
-    for(let ring=0;ring<4;ring++){
-      const radius=targetRadius+ring*forces.ringSpacing*.45;
-      for(let k=0;k<96;k++){
-        const angle=phase+k*(Math.PI*2/96);
-        const jitter=(Math.random()-.5)*forces.randomness*1.2;
-        const cx=Math.cos(angle)*(radius+jitter);
-        const cy=Math.sin(angle)*(radius+jitter);
-        let score=Math.abs(Math.hypot(cx,cy)-targetRadius)*1.7;
-        for(const other of placed){
+    // Test a broad set of directions and slightly different radii. The radial
+    // jitter creates an uneven boundary; sector penalties stop the mass leaning one way.
+    for(let k=0;k<144;k++) {
+      const angle=angleOffset+k*angleStep;
+      for(let radialTry=0;radialTry<5;radialTry++) {
+        const jitter=(Math.random()-.5)*(170+variation*forces.randomness*4);
+        const radius=Math.max(0,idealRadius+jitter+(radialTry-2)*54);
+        const cx=Math.cos(angle)*radius,cy=Math.sin(angle)*radius;
+        let score=0;
+        const sector=Math.floor((((angle%(Math.PI*2))+(Math.PI*2))%(Math.PI*2))/(Math.PI*2)*sectorCounts.length);
+        score+=sectorCounts[sector]*Math.max(120,forces.separation*.28);
+        // Keep the landscape compact, but allow irregular bulges and recesses.
+        score+=Math.abs(radius-idealRadius)*.55;
+        let nearestShared=Infinity,nearestAny=Infinity;
+        let overlapPenalty=0;
+        for(const other of placed) {
           const ox=other.targetX+width/2,oy=other.targetY+height/2;
-          const dist=Math.max(1,Math.hypot(cx-ox,cy-oy));
+          const dx=cx-ox,dy=cy-oy,dist=Math.max(1,Math.hypot(dx,dy));
+          nearestAny=Math.min(nearestAny,dist);
           const shared=sharedCount(g,other);
-          if(hasSelected&&core.includes(other)){
-            // Keep every nonmatching ranking outside a clear buffer around the emphasized core.
-            const minDist=coreRadius+forces.outerOffset;
-            score+=Math.max(0,minDist-dist)*5;
+          if(shared) nearestShared=Math.min(nearestShared,dist- Math.min(110,shared*28));
+          if(intersects(cx,cy,other)) {
+            const overlapX=width+gap-Math.abs(dx);
+            const overlapY=height+gap-Math.abs(dy);
+            overlapPenalty+=180000+Math.max(0,overlapX)*Math.max(0,overlapY)*3;
           } else {
-            const desired=shared?Math.max(width+gap+15,forces.separation*(1-(forces.tagPull/100)*Math.min(1,shared/2))):forces.separation;
-            score+=Math.abs(dist-desired)*(shared?1.8:0.75);
+            const desired=shared
+              ? Math.max(width+gap+12,forces.separation*(1-(forces.tagPull/100)*Math.min(1,shared/2)))
+              : Math.max(width+gap+12,forces.separation);
+            score+=Math.max(0,desired-dist)*(shared?1.6:.72);
           }
-          if(overlaps(cx,cy,other))score+=250000;
         }
-        score+=(Math.random()-.5)*forces.randomness*4;
-        if(score<bestScore){bestScore=score;best={x:cx-width/2,y:cy-height/2};}
+        if(Number.isFinite(nearestShared)) score+=Math.max(0,nearestShared-(width+gap+25))*Math.max(.18,1-forces.tagPull/120);
+        if(Number.isFinite(nearestAny)) score+=Math.max(0,width+gap+10-nearestAny)*2;
+        score+=overlapPenalty;
+        // A small stable noise term avoids mechanically repeated placements.
+        score+=(Math.random()-.5)*(20+variation*70);
+        if(score<bestScore){bestScore=score;best={x:cx-width/2,y:cy-height/2,angle,sector};}
       }
     }
-    g.targetX=best?best.x:Math.cos(phase)*targetRadius-width/2;
-    g.targetY=best?best.y:Math.sin(phase)*targetRadius-height/2;
+    if(!best) {
+      const angle=angleOffset+index*2.399963229728653;
+      const radius=idealRadius+index*10;
+      best={x:Math.cos(angle)*radius-width/2,y:Math.sin(angle)*radius-height/2,angle,sector:Math.floor(((angle%(Math.PI*2)+Math.PI*2)%(Math.PI*2))/(Math.PI*2)*sectorCounts.length)};
+    }
+    g.targetX=best.x;g.targetY=best.y;g.spawnAngle=best.angle;
+    sectorCounts[best.sector]++;
     placed.push(g);
   });
-  // Without an emphasized tag, retain a radial layout but still group shared tags.
-  if(!hasSelected){
-    // The scoring above already applies shared-tag attraction across all rankings.
-  }
-  groups.forEach(g=>{
-    g.x=-width/2;g.y=-height/2;
-  });
+  // Preserve the old DOM positions as animation starts from the center, while
+  // keeping every destination collision-tested against the already placed cards.
+  groups.forEach(g=>{g.x=-width/2;g.y=-height/2;});
   state.islands=new Map(groups.map(g=>[g.key,g]));
 }
 function animateIslands(groups, slowAnimation=false) {
