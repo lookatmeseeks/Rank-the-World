@@ -31,3 +31,11 @@
 .island.tag-cluster{width:670px!important;padding:13px;border:1px solid #3a3e4d;border-radius:14px;background:#171920dd;box-shadow:0 14px 38px #0002}
 .island.tag-cluster .island-rankings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 @media(max-width:700px){.toolbar{gap:6px}.cluster-label{display:none}.cluster-select{max-width:105px;height:36px;padding-left:6px;font-size:10px}.island.single-ranking{width:290px!important}.island.tag-cluster{width:610px!important}}
+
+.island.tag-cluster{padding:0;border:0;background:transparent;box-shadow:none;backdrop-filter:none}
+.island.tag-cluster .island-header{padding:0 4px;margin-bottom:9px}
+.island.tag-cluster .island-emblem{border-radius:50%;width:27px;height:27px;flex-basis:27px}
+.island.tag-cluster .island-title{font-size:13px}
+.island.tag-cluster .island-rankings{gap:12px}
+.island.tag-cluster .ranking-board{background:#1b1d25;border-color:#373c49;box-shadow:0 10px 24px #0003}
+.island.tag-cluster .island-footer{border:0;padding:0 4px;margin-top:8px}
