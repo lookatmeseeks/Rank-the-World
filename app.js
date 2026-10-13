@@ -138,7 +138,7 @@ function animateIslands(groups, slowAnimation=false) {
   const width=320,height=260,gap=24;
   const launchInterval=slowAnimation?720:520;
   const speed=slowAnimation?205:260;
-  const spring=3.2,damping=.84;
+  const spring=1.45,damping=.84;
   const bodies=groups.map((g,i)=>{
     const el=elements[i];
     if(!el)return null;
@@ -191,12 +191,9 @@ function animateIslands(groups, slowAnimation=false) {
         let nx=0,ny=0,penetration=0;
         const centerDistance=Math.hypot(dx,dy);
         if(centerDistance<80) {
-          // Near the launch point, resolve pressure along the incoming boat's
-          // radial destination instead of arbitrarily stacking cards vertically.
-          const moving=a.settled&&!b.settled?b:(!a.settled&&b.settled?a:
-            (!a.settled&&Math.hypot(b.g.targetX+width/2,b.g.targetY+height/2)>
-             Math.hypot(a.g.targetX+width/2,a.g.targetY+height/2)?b:a));
-          const tx=moving.g.targetX+width/2,ty=moving.g.targetY+height/2;
+          // When several boats share the launch point, separate each pair
+          // according to their distinct destinations, not a common radial axis.
+          const tx=(b.g.targetX-a.g.targetX),ty=(b.g.targetY-a.g.targetY);
           const length=Math.max(1,Math.hypot(tx,ty));
           nx=tx/length;ny=ty/length;
           penetration=Math.min(ox,oy);
@@ -208,8 +205,10 @@ function animateIslands(groups, slowAnimation=false) {
         const aMoving=!a.settled,bMoving=!b.settled;
         // A moving boat gives way only slightly; the settled shoreline absorbs
         // most of the displacement and then springs back to close the wake.
-        const aShare=aMoving?(bMoving?.5:.16):(bMoving?.84:.5);
-        const bShare=bMoving?(aMoving?.5:.16):(aMoving?.84:.5);
+        // A settled ranking yields enough to let the incoming boat through,
+        // while its target spring gradually restores the inner/outer silhouette.
+        const aShare=aMoving?(bMoving?.5:.38):(bMoving?.62:.5);
+        const bShare=bMoving?(aMoving?.5:.38):(aMoving?.62:.5);
         const total=aShare+bShare;
         const moveA=penetration*aShare/total*.62;
         const moveB=penetration*bShare/total*.62;
