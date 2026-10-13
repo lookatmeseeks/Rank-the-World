@@ -240,6 +240,26 @@ function updateTagStringPaths(groups, svg) {
   });
 }
 
+function updateLayoutVisually() {
+  const groups=groupRankings();
+  arrangeIslands(groups, false);
+  const elements=groups.map(g=>({g,el:layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]')}));
+  elements.forEach(({g,el})=>{
+    if(!el)return;
+    el.style.transition="left 420ms cubic-bezier(.2,.75,.25,1), top 420ms cubic-bezier(.2,.75,.25,1)";
+    el.style.left=g.targetX+"px";
+    el.style.top=g.targetY+"px";
+  });
+  const strings=layer.querySelector(".tag-strings");
+  if(strings){
+    const began=performance.now();
+    const follow=now=>{
+      updateTagStringPaths(groups,strings);
+      if(now-began<460)requestAnimationFrame(follow);
+    };
+    requestAnimationFrame(follow);
+  }
+}
 function render(slowAnimation=false) {
   const groups=groupRankings(); arrangeIslands(groups, true);
   $("#ranking-count").textContent=state.rankings.length+" ranking"+(state.rankings.length===1?"":"s");
@@ -316,7 +336,7 @@ viewport.addEventListener("lostpointercapture",endPointer);
 viewport.addEventListener("wheel",e=>{e.preventDefault();const rect=viewport.getBoundingClientRect();setZoom(state.zoom*(e.deltaY<0?1.1:1/1.1),e.clientX-rect.left,e.clientY-rect.top);},{passive:false});
 $("#zoom-in").addEventListener("click",()=>setZoom(state.zoom*1.18));$("#zoom-out").addEventListener("click",()=>setZoom(state.zoom/1.18));
 $("#reset-view").addEventListener("click",()=>{state.zoom=1;state.panX=0;state.panY=0;applyTransform();});
-$("#cluster-tag").addEventListener("change",e=>{state.clusterTag=e.target.value;render(true);showToast(state.clusterTag?"Reforming islands around tag: "+state.clusterTag:"Reforming islands using all shared tags.");});
+$("#cluster-tag").addEventListener("change",e=>{state.clusterTag=e.target.value;render(true);showToast(state.clusterTag?"Rebuilding layout around tag: "+state.clusterTag:"Rebuilding layout using all shared tags.");});
 function openCreate(){form.reset();openDialog(modal);setTimeout(()=>titleInput.focus(),30);}
 $("#create-ranking").addEventListener("click",openCreate);$("#empty-create").addEventListener("click",openCreate);
 function addTestSet(){
@@ -364,11 +384,11 @@ forceControls.forEach(([key,id,format])=>{
   $("#"+id).addEventListener("input",e=>{
     forces[key]=Number(e.target.value);
     $("#"+id+"-value").textContent=format(forces[key]);
-    render(true);
+    updateLayoutVisually();
   });
 });
 $("#reset-forces").addEventListener("click",()=>{
-  Object.assign(forces,DEFAULT_FORCES);syncForceControls();render(true);showToast("Layout forces reset.");
+  Object.assign(forces,DEFAULT_FORCES);syncForceControls();updateLayoutVisually();showToast("Layout forces reset.");
 });
 $("#export-forces").addEventListener("click",()=>{
   const payload={format:"rank-the-world-layout-preset",version:1,forces:{...forces}};
@@ -388,7 +408,7 @@ $("#import-forces").addEventListener("change",async e=>{
       const input=$("#"+id),value=Number(source[key]);
       if(Number.isFinite(value))forces[key]=Math.max(Number(input.min),Math.min(Number(input.max),value));
     });
-    syncForceControls();render(true);showToast("Layout preset imported.");
+    syncForceControls();updateLayoutVisually();showToast("Layout preset imported.");
   }catch(error){showToast("Could not import preset: "+error.message);}
   e.target.value="";
 });
