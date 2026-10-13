@@ -31,59 +31,77 @@ function groupRankings() {
 function islandSize(group) { return { w: 320, h: 260 }; }
 function arrangeIslands(groups, animate=true) {
   if(state.animationFrame) cancelAnimationFrame(state.animationFrame);
+  const width=320,height=260,gap=54;
+  const next=new Map();
+  const rotation=Math.random()*Math.PI*2;
+  const selected=state.clusterTag;
+  const hasSelected=!!selected;
+  const core=hasSelected?groups.filter(g=>g.items[0].tags.some(t=>tagKey(t)===tagKey(selected))):[];
+  const outer=hasSelected?groups.filter(g=>!g.items[0].tags.some(t=>tagKey(t)===tagKey(selected))):[...groups];
   const placed=[];
-  const gap=48;
-  const width=320, height=260;
-  // Place newest rankings first at the center; each older ranking must find space around them.
-  // Candidate scoring is deterministic: shared tags prefer proximity, unrelated rankings prefer separation.
-  for(let i=groups.length-1;i>=0;i--){
-    const g=groups[i], depth=groups.length-1-i;
+  function sharedCount(a,b){
+    return a.items[0].tags.filter(t=>b.items[0].tags.some(u=>tagKey(t)===tagKey(u))).length;
+  }
+  function overlaps(cx,cy,other){
+    return Math.abs(cx-(other.targetX+width/2))<width+gap &&
+           Math.abs(cy-(other.targetY+height/2))<height+gap;
+  }
+  // Rankings carrying the selected tag form the central group.
+  // A golden-angle spiral spreads them around the center without a row/column bias.
+  core.forEach((g,i)=>{
     g.w=width;g.h=height;g.manual=false;g.vx=0;g.vy=0;
-    if(depth===0){g.targetX=-width/2;g.targetY=-height/2;placed.push(g);continue;}
-    let best=null, bestScore=Infinity;
-    const baseRadius=depth*350;
-    for(let ring=0;ring<5;ring++){
-      const radius=baseRadius+ring*95;
-      for(let k=0;k<36;k++){
-        const angle=(k/36)*Math.PI*2 + (depth%2)*0.0872664626;
-        const x=Math.cos(angle)*radius-width/2;
-        const y=Math.sin(angle)*radius-height/2;
+    let radius=i===0?0:Math.ceil(Math.sqrt(i))*330;
+    let angle=rotation+i*2.399963229728653;
+    let cx=Math.cos(angle)*radius,cy=Math.sin(angle)*radius;
+    let tries=0;
+    while(placed.some(o=>overlaps(cx,cy,o))&&tries++<20){
+      radius+=85;cx=Math.cos(angle)*radius;cy=Math.sin(angle)*radius;
+    }
+    g.targetX=cx-width/2;g.targetY=cy-height/2;
+    placed.push(g);
+  });
+  // All remaining rankings grow outward in radial rings. Tag links affect the
+  // preferred distance, while a fresh rotation/jitter avoids identical layouts.
+  outer.forEach((g,i)=>{
+    g.w=width;g.h=height;g.manual=false;g.vx=0;g.vy=0;
+    let best=null,bestScore=Infinity;
+    const coreRadius=hasSelected&&core.length?Math.max(...core.map(p=>Math.hypot(p.targetX+width/2,p.targetY+height/2))):0;
+    const ringStart=hasSelected&&core.length?coreRadius+410:260;
+    const startRadius=ringStart+Math.floor(i/8)*350;
+    const phase=rotation+i*2.399963229728653;
+    for(let ring=0;ring<6;ring++){
+      const radius=startRadius+ring*100;
+      for(let k=0;k<64;k++){
+        const angle=phase+k*(Math.PI*2/64);
+        const cx=Math.cos(angle)*radius+(Math.random()-.5)*55;
+        const cy=Math.sin(angle)*radius+(Math.random()-.5)*55;
         let score=0;
         for(const other of placed){
-          const dx=(x+width/2)-(other.targetX+width/2);
-          const dy=(y+height/2)-(other.targetY+height/2);
-          const dist=Math.max(1,Math.hypot(dx,dy));
-          const shared=g.items[0].tags.filter(t=>other.items[0].tags.some(u=>tagKey(t)===tagKey(u)));
-          const selected=!!(state.clusterTag&&shared.some(t=>tagKey(t)===tagKey(state.clusterTag)));
-          const desired=shared.length?(selected?390:510):650;
-          score+=Math.abs(dist-desired)*(shared.length?1.1:0.85);
-          const ox=(width+other.w)/2+gap-Math.abs(dx);
-          const oy=(height+other.h)/2+gap-Math.abs(dy);
-          if(ox>0&&oy>0)score+=100000+ox*oy*10;
+          const ox=other.targetX+width/2,oy=other.targetY+height/2;
+          const dist=Math.max(1,Math.hypot(cx-ox,cy-oy));
+          const shared=sharedCount(g,other);
+          const selectedLink=hasSelected&&g.items[0].tags.some(t=>tagKey(t)===tagKey(selected))&&other.items[0].tags.some(t=>tagKey(t)===tagKey(selected));
+          const desired=shared?(selectedLink?390:450):720;
+          score+=Math.abs(dist-desired)*(shared?1.2:.7);
+          if(overlaps(cx,cy,other))score+=150000;
         }
-        // A small radial penalty keeps the oldest rankings toward the outside.
-        score+=Math.abs(radius-baseRadius)*0.22;
-        if(score<bestScore){bestScore=score;best={x,y};}
+        score+=Math.abs(Math.hypot(cx,cy)-radius)*.35;
+        if(score<bestScore){bestScore=score;best={x:cx-width/2,y:cy-height/2};}
       }
       if(bestScore<10000)break;
     }
-    g.targetX=best.x;g.targetY=best.y;placed.push(g);
-  }
-  const ordered=[...groups].sort((a,b)=>groups.indexOf(b)-groups.indexOf(a));
-  const old=state.islands;
-  const next=new Map();
-  groups.forEach((g,i)=>{
-    const prior=old.get(g.key);
-    if(animate){
-      // Every island begins at the center; newer rankings move first and older ones grow outward.
-      g.x=-width/2;g.y=-height/2;
-    }else{
-      g.x=g.targetX;g.y=g.targetY;
-    }
+    g.targetX=best?best.x:Math.cos(phase)*startRadius-width/2;
+    g.targetY=best?best.y:Math.sin(phase)*startRadius-height/2;
+    placed.push(g);
+  });
+  groups.forEach(g=>{
+    const angle=rotation+Math.random()*Math.PI*2;
+    const radius=12+Math.random()*70;
+    g.x=Math.cos(angle)*radius-width/2;
+    g.y=Math.sin(angle)*radius-height/2;
     next.set(g.key,g);
   });
   state.islands=next;
-  return {ordered};
 }
 function animateIslands(groups) {
   const elements=groups.map(g=>layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]'));
