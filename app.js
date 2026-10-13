@@ -137,7 +137,8 @@ layer.addEventListener("pointerdown",e=>{const header=e.target.closest(".island-
 viewport.addEventListener("wheel",e=>{e.preventDefault();const rect=viewport.getBoundingClientRect();setZoom(state.zoom*(e.deltaY<0?1.1:1/1.1),e.clientX-rect.left,e.clientY-rect.top);},{passive:false});
 $("#zoom-in").addEventListener("click",()=>setZoom(state.zoom*1.18));$("#zoom-out").addEventListener("click",()=>setZoom(state.zoom/1.18));
 $("#reset-view").addEventListener("click",()=>{state.zoom=1;state.panX=0;state.panY=0;applyTransform();});
-$("#auto-arrange").addEventListener("click",autoArrange);\n$("#cluster-tag").addEventListener("change",e=>{state.clusterTag=e.target.value;state.islands.clear();render();showToast(state.clusterTag?"Clustered by tag: "+state.clusterTag:"Showing rankings as separate grids.");});
+$("#auto-arrange").addEventListener("click",autoArrange);
+$("#cluster-tag").addEventListener("change",e=>{state.clusterTag=e.target.value;state.islands.clear();render();showToast(state.clusterTag?"Clustered by tag: "+state.clusterTag:"Showing rankings as separate grids.");});
 function openCreate(){form.reset();openDialog(modal);setTimeout(()=>titleInput.focus(),30);}
 $("#create-ranking").addEventListener("click",openCreate);$("#empty-create").addEventListener("click",openCreate);
 $("#close-modal").addEventListener("click",()=>closeDialog(modal));$("#cancel-modal").addEventListener("click",()=>closeDialog(modal));
