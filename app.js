@@ -103,7 +103,7 @@ function arrangeIslands(groups, animate=true) {
   });
   state.islands=next;
 }
-function animateIslands(groups) {
+function animateIslands(groups, slowAnimation=false) {
   const elements=groups.map(g=>layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]'));
   elements.forEach(el=>{
     if(!el)return;
@@ -117,8 +117,9 @@ function animateIslands(groups) {
     groups.forEach((g,i)=>{
       const el=elements[i];if(!el)return;
       const rankIndex=state.rankings.findIndex(r=>String(r.id)===String(g.items[0].id));
-      const delay=(state.rankings.length-1-rankIndex)*65+Math.random()*65;
-      el.style.transition="left 850ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, top 850ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, opacity 320ms ease "+delay+"ms, transform 620ms cubic-bezier(.25,1.55,.5,1) "+delay+"ms";
+      const delay=(state.rankings.length-1-rankIndex)*(slowAnimation?125:65)+Math.random()*(slowAnimation?100:65);
+      const moveDuration=slowAnimation?1550:850, popDuration=slowAnimation?1050:620, fadeDuration=slowAnimation?650:320;
+      el.style.transition="left "+moveDuration+"ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, top "+moveDuration+"ms cubic-bezier(.2,.75,.25,1) "+delay+"ms, opacity "+fadeDuration+"ms ease "+delay+"ms, transform "+popDuration+"ms cubic-bezier(.25,1.55,.5,1) "+delay+"ms";
       el.style.left=g.targetX+"px";el.style.top=g.targetY+"px";
       el.style.opacity="1";el.style.transform="scale(1) rotate(0deg)";
     });
@@ -128,20 +129,20 @@ function animateIslands(groups) {
   });
 }
 function createNode(tag, className, text) { const el=document.createElement(tag); if(className)el.className=className; if(text!==undefined)el.textContent=text; return el; }
-function createTagStrings(groups) {
+function createTagStrings(groups, slowAnimation=false) {
   const svgNS="http://www.w3.org/2000/svg";
   const svg=document.createElementNS(svgNS,"svg");
   svg.classList.add("tag-strings");
   svg.setAttribute("aria-hidden","true");
-  svg.style.cssText="position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none;opacity:0;transition:opacity 650ms ease 500ms;";
+  svg.style.cssText="position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none;opacity:0;transition:opacity "+(slowAnimation?"1200ms ease 900ms":"650ms ease 500ms")+";";
   const seen=new Set();
   for(let i=0;i<groups.length;i++){
     for(let j=i+1;j<groups.length;j++){
       const a=groups[i],b=groups[j];
-      const shared=a.items[0].tags.filter(t=>b.items[0].tags.some(u=>tagKey(t)===tagKey(u)));
-      if(!shared.length)continue;
-      // One strand per pair keeps the graph legible; its color identifies one shared tag.
-      const tag=shared.sort((x,y)=>x.localeCompare(y))[0];
+      // Connect rankings only when their first tag matches.
+      const tagA=a.items[0].tags[0], tagB=b.items[0].tags[0];
+      if(!tagA || !tagB || tagKey(tagA)!==tagKey(tagB))continue;
+      const tag=tagA;
       const pair=a.key+"|"+b.key;
       if(seen.has(pair))continue;seen.add(pair);
       const ax=a.targetX+a.w/2,ay=a.targetY+a.h/2;
@@ -165,12 +166,12 @@ function createTagStrings(groups) {
   }
   return seen.size?svg:null;
 }
-function render() {
+function render(slowAnimation=false) {
   const groups=groupRankings(); arrangeIslands(groups, true);
   $("#ranking-count").textContent=state.rankings.length+" ranking"+(state.rankings.length===1?"":"s");
   $("#canvas-empty").hidden=state.rankings.length>0;
   layer.replaceChildren();
-  const strings=createTagStrings(groups);
+  const strings=createTagStrings(groups, slowAnimation);
   if(strings) layer.append(strings);
   groups.forEach(g=>{
     const island=createNode("section","island"+(g.manual?" manual":"")+(g.cluster?" tag-cluster":" single-ranking"),undefined);
@@ -210,7 +211,7 @@ function render() {
     layer.append(island);
   });
   applyTransform();
-  animateIslands(groups);
+  animateIslands(groups, slowAnimation);
 }
 function hash(str){let h=0;for(let i=0;i<str.length;i++)h=((h<<5)-h)+str.charCodeAt(i)|0;return h;}
 function applyTransform(){world.style.transform="translate("+((viewport.clientWidth/2)+state.panX)+"px,"+((viewport.clientHeight/2)+state.panY)+"px) scale("+state.zoom+")";$("#zoom-level").textContent=Math.round(state.zoom*100)+"%";}
@@ -227,7 +228,7 @@ layer.addEventListener("pointerdown",e=>{const header=e.target.closest(".island-
 viewport.addEventListener("wheel",e=>{e.preventDefault();const rect=viewport.getBoundingClientRect();setZoom(state.zoom*(e.deltaY<0?1.1:1/1.1),e.clientX-rect.left,e.clientY-rect.top);},{passive:false});
 $("#zoom-in").addEventListener("click",()=>setZoom(state.zoom*1.18));$("#zoom-out").addEventListener("click",()=>setZoom(state.zoom/1.18));
 $("#reset-view").addEventListener("click",()=>{state.zoom=1;state.panX=0;state.panY=0;applyTransform();});
-$("#cluster-tag").addEventListener("change",e=>{state.clusterTag=e.target.value;render();showToast(state.clusterTag?"Reforming islands around tag: "+state.clusterTag:"Reforming islands using all shared tags.");});
+$("#cluster-tag").addEventListener("change",e=>{state.clusterTag=e.target.value;render(true);showToast(state.clusterTag?"Reforming islands around tag: "+state.clusterTag:"Reforming islands using all shared tags.");});
 function openCreate(){form.reset();openDialog(modal);setTimeout(()=>titleInput.focus(),30);}
 $("#create-ranking").addEventListener("click",openCreate);$("#empty-create").addEventListener("click",openCreate);
 function addTestSet(){
