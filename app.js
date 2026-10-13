@@ -192,9 +192,11 @@ function animateIslands(groups, slowAnimation=false) {
         if(ox<oy){nx=dx===0?(i%2?1:-1):Math.sign(dx);penetration=ox;}
         else {ny=dy===0?(j%2?1:-1):Math.sign(dy);penetration=oy;}
         const aMoving=!a.settled,bMoving=!b.settled;
-        const aShare=aMoving?(bMoving?.42:.16):0;
-        const bShare=bMoving?(aMoving?.42:.84):0;
-        const total=aShare+bShare||1;
+        // A moving boat gives way only slightly; the settled shoreline absorbs
+        // most of the displacement and then springs back to close the wake.
+        const aShare=aMoving?(bMoving?.5:.16):(bMoving?.84:.5);
+        const bShare=bMoving?(aMoving?.5:.16):(aMoving?.84:.5);
+        const total=aShare+bShare;
         const moveA=penetration*aShare/total*.62;
         const moveB=penetration*bShare/total*.62;
         a.x-=nx*moveA;a.y-=ny*moveA;b.x+=nx*moveB;b.y+=ny*moveB;
