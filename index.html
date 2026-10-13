@@ -15,6 +15,25 @@
   <div class="toolbar-center"><span class="live-dot"></span><span id="workspace-label">Shared world</span><span class="toolbar-divider"></span><span id="ranking-count">0 rankings</span></div>
   <div class="toolbar-actions"><label class="cluster-label" for="cluster-tag">Emphasize tag</label><select class="cluster-select" id="cluster-tag" aria-label="Choose a tag to reform the island layout"><option value="">No tag emphasis</option></select><button class="tool-button" id="add-test-lists" type="button" title="Add a repeatable set of sample rankings">＋ Test lists</button><button class="primary-button" id="create-ranking" type="button">＋ Add ranking</button></div>
 </header>
+  <aside class="force-sidebar" id="force-sidebar" aria-label="Layout force settings">
+    <div class="force-heading"><div><p class="eyebrow">LAYOUT ENGINE</p><h2>Tag forces</h2></div><button class="icon-button" id="toggle-forces" type="button" aria-label="Collapse layout settings">−</button></div>
+    <p class="force-intro">Control how tightly the emphasized tag gathers, how far other rankings orbit, and how shared tags pull the outer rankings together.</p>
+    <div class="force-controls">
+      <label for="force-core-spacing"><span>Center spacing</span><output id="force-core-spacing-value">300 px</output></label><input id="force-core-spacing" type="range" min="240" max="420" step="10" value="300">
+      <p class="force-hint">Distance between rankings carrying the emphasized tag.</p>
+      <label for="force-outer-offset"><span>Outer offset</span><output id="force-outer-offset-value">1000 px</output></label><input id="force-outer-offset" type="range" min="600" max="1800" step="50" value="1000">
+      <p class="force-hint">Minimum orbit distance from the center.</p>
+      <label for="force-ring-spacing"><span>Orbit spacing</span><output id="force-ring-spacing-value">420 px</output></label><input id="force-ring-spacing" type="range" min="300" max="800" step="25" value="420">
+      <p class="force-hint">How far successive outer rings sit from each other.</p>
+      <label for="force-tag-pull"><span>Shared-tag attraction</span><output id="force-tag-pull-value">70%</output></label><input id="force-tag-pull" type="range" min="0" max="100" step="5" value="70">
+      <p class="force-hint">Higher values bring rankings with shared tags closer together.</p>
+      <label for="force-separation"><span>Unrelated separation</span><output id="force-separation-value">850 px</output></label><input id="force-separation" type="range" min="500" max="1400" step="50" value="850">
+      <p class="force-hint">Preferred distance between rankings without shared tags.</p>
+      <label for="force-randomness"><span>Layout variation</span><output id="force-randomness-value">35%</output></label><input id="force-randomness" type="range" min="0" max="100" step="5" value="35">
+    </div>
+    <div class="force-actions"><button class="secondary-button" id="reset-forces" type="button">Reset</button><button class="primary-button" id="export-forces" type="button">Export preset</button></div>
+    <label class="import-preset" for="import-forces">Import preset file<input id="import-forces" type="file" accept=".json,application/json"></label>
+  </aside>
 <main class="world">
   <div class="canvas-help"><span class="help-icon">↔</span> Drag empty space to move around <span class="help-sep">·</span> Scroll to zoom</div>
   <div class="canvas-viewport" id="canvas-viewport" aria-label="Ranking canvas">
