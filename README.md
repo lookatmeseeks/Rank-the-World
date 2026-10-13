@@ -1,29 +1,28 @@
 # Rank the World
 
-A dark, flexible tier-list website for ranking things you like: music, anime openings, characters, games, memorable moments, and more.
+Rank the World is intended to be a shared, spatial canvas for tier lists—not a conventional dashboard.
 
-## Current status
+## Current prototype
 
-Phase 1: initial static website shell.
+- Giant pannable canvas with zoom controls
+- Create ranking objects with a title, description, and comma-separated tags
+- Rankings sharing one or more tags automatically join the same island
+- New islands are placed in open space to avoid overlapping existing islands
+- Drag an island by its header to manually place it; manually placed islands stay put during ordinary updates
+- Use **Auto arrange** to return islands to automatic placement
+- Click a ranking to open its detail panel
 
-- Responsive dark interface
-- Ranking dashboard
-- Create-ranking modal and temporary in-browser preview
-- No database connection yet
+## Current limitations
 
-## Roadmap
+This is still a front-end prototype. Rankings are held in JavaScript memory and disappear when the page reloads. Changes are not shared between visitors yet. The tier-list editor, media items, Supabase persistence, and link-scoped collaborative permissions have not been implemented.
 
-1. Website foundation: publish the shell through GitHub Pages.
-2. Supabase setup: create tables for rankings and ranking entries; configure access safely.
-3. Tier-list editor: custom tier labels, add/edit/remove entries, and drag-and-drop between tiers.
-4. Media model: support images, YouTube URLs and timestamps, audio links, and future media providers.
-5. Share links: link-based editing for the individual ranking, with access limited to that ranking.
-6. Testing and polish: test mobile layouts, persistence, concurrency, and sharing.
+## Planned implementation
 
-## Important security note
+1. Finalize the canvas and island interaction model.
+2. Set up Supabase tables for workspaces, rankings, tags, items, and positions.
+3. Implement safe shared-link editing with Row Level Security and scoped share tokens.
+4. Build the tier-list editor, including custom tiers and movable items.
+5. Add media references for images, YouTube clips, songs, and future providers.
+6. Test concurrent edits, responsive behavior, persistence, and sharing.
 
-The browser must never contain a Supabase service-role key. Shared editing should use scoped share tokens and carefully designed Row Level Security policies, not unrestricted write access to every row.
-
-## Local preview
-
-Open index.html in a browser. The create-ranking interaction is temporary and does not persist after refresh.
+Never expose a Supabase service-role key in browser code.
