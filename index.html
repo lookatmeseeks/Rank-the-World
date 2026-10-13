@@ -13,11 +13,12 @@
 <header class="toolbar">
   <a class="brand" href="./"><span class="brand-mark">R</span><span>Rank the World</span></a>
   <div class="toolbar-center"><span class="live-dot"></span><span id="workspace-label">Shared world</span><span class="toolbar-divider"></span><span id="ranking-count">0 rankings</span></div>
-  <div class="toolbar-actions"><label class="cluster-label" for="cluster-tag">Emphasize tag</label><select class="cluster-select" id="cluster-tag" aria-label="Choose a tag to reform the island layout"><option value="">No tag emphasis</option></select><button class="tool-button" id="add-test-lists" type="button" title="Add a repeatable set of sample rankings">＋ Test lists</button><button class="primary-button" id="create-ranking" type="button">＋ Add ranking</button></div>
+  <div class="toolbar-actions"><button class="tool-button" id="add-test-lists" type="button" title="Add a repeatable set of sample rankings">＋ Test lists</button><button class="primary-button" id="create-ranking" type="button">＋ Add ranking</button></div>
 </header>
   <aside class="force-sidebar" id="force-sidebar" aria-label="Layout force settings">
     <div class="force-heading"><div><p class="eyebrow">LAYOUT ENGINE</p><h2>Tag forces</h2></div><button class="icon-button" id="toggle-forces" type="button" aria-label="Collapse layout settings">−</button></div>
-    <p class="force-intro">Control how tightly the emphasized tag gathers, how far other rankings orbit, and how shared tags pull the outer rankings together.</p>
+    <p class="force-intro">Force sliders move the existing islands live. Only changing the emphasized tag rebuilds the layout.</p>
+    <div class="force-rebuild"><label for="cluster-tag">Emphasize tag <span class="rebuild-mark">REBUILDS LAYOUT</span></label><select class="cluster-select" id="cluster-tag" aria-label="Choose a tag to rebuild the island layout"><option value="">No tag emphasis</option></select><p class="force-hint">Changes which rankings form the central group and which orbit outside it.</p></div>
     <div class="force-controls">
       <label for="force-core-spacing"><span>Center spacing</span><output id="force-core-spacing-value">300 px</output></label><input id="force-core-spacing" type="range" min="240" max="420" step="10" value="300">
       <p class="force-hint">Distance between rankings carrying the emphasized tag.</p>
