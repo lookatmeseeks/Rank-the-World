@@ -6,6 +6,7 @@ const modal = $("#create-modal"), form = $("#create-form"), titleInput = $("#ran
 const detail = $("#ranking-modal"), toast = $("#toast");
 const DEFAULT_FORCES = { coreSpacing:300, outerOffset:1000, ringSpacing:420, tagPull:70, separation:850, randomness:35 };
 const forces = {...DEFAULT_FORCES};
+let lastAppliedForces = {...DEFAULT_FORCES};
 const state = { rankings: [], islands: new Map(), zoom: 1, panX: 0, panY: 0, nextId: 1, panning: null, activeRanking: null, clusterTag: "", layoutSeed: 1, animationFrame: null };
 const COLORS = ["#b7a7ff","#7ed9c4","#f0be85","#f18ca7","#8ec7f3","#d4a0ef"];
 function showToast(message) { toast.textContent = message; toast.classList.add("visible"); clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.classList.remove("visible"), 2800); }
@@ -240,22 +241,83 @@ function updateTagStringPaths(groups, svg) {
   });
 }
 
-function updateLayoutVisually() {
-  const groups=groupRankings();
-  arrangeIslands(groups, false);
-  const elements=groups.map(g=>({g,el:layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]')}));
-  elements.forEach(({g,el})=>{
-    if(!el)return;
-    el.style.transition="left 420ms cubic-bezier(.2,.75,.25,1), top 420ms cubic-bezier(.2,.75,.25,1)";
-    el.style.left=g.targetX+"px";
-    el.style.top=g.targetY+"px";
+function updateLayoutVisually(changedKey="") {
+  // Adjust the current positions in place. Never run the randomized layout search
+  // from a force-slider event: that would choose new angular positions each time.
+  const groups=[...state.islands.values()];
+  if(!groups.length)return;
+  const width=320,height=260;
+  const elements=groups.map(g=>({g,el:layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]')})).filter(x=>x.el);
+  const positions=elements.map(({g,el})=>({
+    g,el,
+    x:parseFloat(el.style.left)||0,
+    y:parseFloat(el.style.top)||0,
+    cx:(parseFloat(el.style.left)||0)+width/2,
+    cy:(parseFloat(el.style.top)||0)+height/2
+  }));
+  const selected=state.clusterTag;
+  const core=positions.filter(p=>selected&&p.g.items[0].tags.some(t=>tagKey(t)===tagKey(selected)));
+  const coreKeys=new Set(core.map(p=>p.g.key));
+  const center={x:0,y:0};
+  const before={...lastAppliedForces};
+  const after={...forces};
+  const dx=after.coreSpacing-before.coreSpacing;
+  const dOuter=after.outerOffset-before.outerOffset;
+  const dRing=after.ringSpacing-before.ringSpacing;
+  const dSeparation=after.separation-before.separation;
+  const dPull=after.tagPull-before.tagPull;
+  const moved=new Map(positions.map(p=>[p.g.key,{x:p.x,y:p.y}]));
+  const addMove=(key,x,y)=>{
+    const point=moved.get(key);if(!point)return;
+    point.x+=x;point.y+=y;
+  };
+  // Spacing sliders scale along existing radial directions, preserving the layout's shape.
+  if(dx){
+    core.forEach((p,i)=>{
+      const scale=dx/Math.max(1,before.coreSpacing);
+      addMove(p.g.key,p.cx*scale,p.cy*scale);
+    });
+  }
+  if(dOuter||dRing){
+    positions.filter(p=>!coreKeys.has(p.g.key)).forEach(p=>{
+      const radius=Math.max(1,Math.hypot(p.cx,p.cy));
+      const unitX=p.cx/radius,unitY=p.cy/radius;
+      const ringFactor=dRing/Math.max(1,before.ringSpacing);
+      const radialDelta=dOuter+radius*ringFactor;
+      addMove(p.g.key,unitX*radialDelta,unitY*radialDelta);
+    });
+  }
+  // Separation and tag attraction act as small pairwise corrections along each
+  // existing line between rankings; their angles do not get randomized.
+  if(dSeparation||dPull){
+    for(let i=0;i<positions.length;i++)for(let j=i+1;j<positions.length;j++){
+      const a=positions[i],b=positions[j];
+      const dx=b.cx-a.cx,dy=b.cy-a.cy,dist=Math.max(1,Math.hypot(dx,dy));
+      const shared=a.g.items[0].tags.filter(t=>b.g.items[0].tags.some(u=>tagKey(t)===tagKey(u))).length;
+      const factor=Math.min(1,shared/2);
+      const oldDesired=shared?Math.max(width+54+15,before.separation*(1-(before.tagPull/100)*factor)):before.separation;
+      const newDesired=shared?Math.max(width+54+15,after.separation*(1-(after.tagPull/100)*factor)):after.separation;
+      let delta=(newDesired-oldDesired)*0.5;
+      delta=Math.max(-10,Math.min(10,delta));
+      const ux=dx/dist,uy=dy/dist;
+      addMove(a.g.key,-ux*delta*.5,-uy*delta*.5);
+      addMove(b.g.key, ux*delta*.5, uy*delta*.5);
+    }
+  }
+  positions.forEach(p=>{
+    const next=moved.get(p.g.key);
+    p.el.style.transition="left 280ms cubic-bezier(.2,.75,.25,1), top 280ms cubic-bezier(.2,.75,.25,1)";
+    p.el.style.left=next.x+"px";p.el.style.top=next.y+"px";
+    p.g.targetX=next.x;p.g.targetY=next.y;
   });
+  // Keep the stored positions aligned with the DOM so subsequent adjustments build on them.
+  lastAppliedForces={...after};
   const strings=layer.querySelector(".tag-strings");
   if(strings){
     const began=performance.now();
     const follow=now=>{
       updateTagStringPaths(groups,strings);
-      if(now-began<460)requestAnimationFrame(follow);
+      if(now-began<320)requestAnimationFrame(follow);
     };
     requestAnimationFrame(follow);
   }
@@ -384,7 +446,7 @@ forceControls.forEach(([key,id,format])=>{
   $("#"+id).addEventListener("input",e=>{
     forces[key]=Number(e.target.value);
     $("#"+id+"-value").textContent=format(forces[key]);
-    updateLayoutVisually();
+    updateLayoutVisually(key);
   });
 });
 $("#reset-forces").addEventListener("click",()=>{
