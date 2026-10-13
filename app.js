@@ -189,8 +189,22 @@ function animateIslands(groups, slowAnimation=false) {
         const ox=width+gap-Math.abs(dx),oy=height+gap-Math.abs(dy);
         if(ox<=0||oy<=0)continue;
         let nx=0,ny=0,penetration=0;
-        if(ox<oy){nx=dx===0?(i%2?1:-1):Math.sign(dx);penetration=ox;}
-        else {ny=dy===0?(j%2?1:-1):Math.sign(dy);penetration=oy;}
+        const centerDistance=Math.hypot(dx,dy);
+        if(centerDistance<80) {
+          // Near the launch point, resolve pressure along the incoming boat's
+          // radial destination instead of arbitrarily stacking cards vertically.
+          const moving=a.settled&&!b.settled?b:(!a.settled&&b.settled?a:
+            (!a.settled&&Math.hypot(b.g.targetX+width/2,b.g.targetY+height/2)>
+             Math.hypot(a.g.targetX+width/2,a.g.targetY+height/2)?b:a));
+          const tx=moving.g.targetX+width/2,ty=moving.g.targetY+height/2;
+          const length=Math.max(1,Math.hypot(tx,ty));
+          nx=tx/length;ny=ty/length;
+          penetration=Math.min(ox,oy);
+        } else if(ox<oy) {
+          nx=Math.sign(dx);penetration=ox;
+        } else {
+          ny=Math.sign(dy);penetration=oy;
+        }
         const aMoving=!a.settled,bMoving=!b.settled;
         // A moving boat gives way only slightly; the settled shoreline absorbs
         // most of the displacement and then springs back to close the wake.
