@@ -30,7 +30,7 @@
       <p class="force-hint">Higher values bring rankings with shared tags closer together.</p>
       <label for="force-separation"><span>Unrelated separation</span><output id="force-separation-value">850 px</output></label><input id="force-separation" type="range" min="500" max="1400" step="50" value="850">
       <p class="force-hint">Preferred distance between rankings without shared tags.</p>
-      <label for="force-randomness"><span>Layout variation</span><output id="force-randomness-value">35%</output></label><input id="force-randomness" type="range" min="0" max="100" step="5" value="35">
+      <label for="force-randomness"><span>Layout variation</span><output id="force-randomness-value">35%</output></label><input id="force-randomness" type="range" min="0" max="100" step="5" value="35"><p class="force-hint"><span class="rebuild-mark">REBUILDS LAYOUT</span> Affects randomness on the next layout rebuild, not current spacing.</p>
     </div>
     <div class="force-actions"><button class="secondary-button" id="reset-forces" type="button">Reset</button><button class="primary-button" id="export-forces" type="button">Export preset</button></div>
     <label class="import-preset" for="import-forces">Import preset file<input id="import-forces" type="file" accept=".json,application/json"></label>
