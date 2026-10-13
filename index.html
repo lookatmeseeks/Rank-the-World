@@ -13,7 +13,7 @@
 <header class="toolbar">
   <a class="brand" href="./"><span class="brand-mark">R</span><span>Rank the World</span></a>
   <div class="toolbar-center"><span class="live-dot"></span><span id="workspace-label">Shared world</span><span class="toolbar-divider"></span><span id="ranking-count">0 rankings</span></div>
-  <div class="toolbar-actions"><label class="cluster-label" for="cluster-tag">Cluster by</label><select class="cluster-select" id="cluster-tag" aria-label="Choose tag for island grouping"><option value="">No tag grouping</option></select><button class="tool-button" id="auto-arrange" type="button" title="Automatically arrange islands">Auto arrange</button><button class="primary-button" id="create-ranking" type="button">＋ Add ranking</button></div>
+  <div class="toolbar-actions"><label class="cluster-label" for="cluster-tag">Emphasize tag</label><select class="cluster-select" id="cluster-tag" aria-label="Choose tag to emphasize in the force layout"><option value="">No tag grouping</option></select><button class="tool-button" id="auto-arrange" type="button" title="Automatically arrange islands">Auto arrange</button><button class="primary-button" id="create-ranking" type="button">＋ Add ranking</button></div>
 </header>
 <main class="world">
   <div class="canvas-help"><span class="help-icon">↔</span> Drag empty space to move around <span class="help-sep">·</span> Scroll to zoom <span class="help-sep">·</span> Drag an island to place it</div>
@@ -22,7 +22,7 @@
       <div class="world-origin" aria-hidden="true"></div>
       <div class="islands-layer" id="islands-layer"></div>
     </div>
-    <div class="canvas-empty" id="canvas-empty"><div class="empty-orbit"><span>R</span><i></i><i></i><i></i></div><h1>Your world is empty</h1><p>Create a ranking to start your first island. Choose a tag to arrange rankings into a cluster. Other tags will not merge unrelated clusters.</p><button class="primary-button" id="empty-create" type="button">＋ Create your first ranking</button></div>
+    <div class="canvas-empty" id="canvas-empty"><div class="empty-orbit"><span>R</span><i></i><i></i><i></i></div><h1>Your world is empty</h1><p>Create a ranking to start your first island. Rankings attract each other through shared tags. Emphasize a tag to strengthen those relationships.</p><button class="primary-button" id="empty-create" type="button">＋ Create your first ranking</button></div>
     <div class="zoom-controls"><button id="zoom-in" type="button" aria-label="Zoom in">＋</button><span id="zoom-level">100%</span><button id="zoom-out" type="button" aria-label="Zoom out">−</button><button id="reset-view" type="button" aria-label="Reset view" title="Reset view">⌖</button></div>
     <div class="canvas-legend"><span class="legend-dot auto-dot"></span> Auto-organized <span class="legend-dot manual-dot"></span> Manually placed</div>
   </div>
@@ -33,7 +33,7 @@
     <label for="ranking-title">Ranking name</label><input id="ranking-title" name="title" maxlength="100" placeholder="e.g. Best anime openings" required>
     <label for="ranking-description">Description <span class="optional">(optional)</span></label><textarea id="ranking-description" name="description" rows="2" maxlength="300" placeholder="What are you ranking?"></textarea>
     <label for="ranking-tags">Tags <span class="optional">· separate with commas</span></label><input id="ranking-tags" name="tags" maxlength="160" placeholder="e.g. Anime, Music, Openings">
-    <p class="field-hint">Tags describe relationships, but only the selected “Cluster by” tag groups rankings together. Other tags do not merge islands.</p>
+    <p class="field-hint">Tags describe relationships, but All shared tags influence proximity. The selected tag strengthens its pull without merging rankings into fixed groups.</p>
     <div class="modal-note">This prototype currently stores changes in this browser session only. Shared database saving comes next.</div>
     <div class="modal-actions"><button class="secondary-button" type="button" id="cancel-modal">Cancel</button><button class="primary-button" type="submit">Create ranking</button></div>
   </form>
