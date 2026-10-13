@@ -54,9 +54,11 @@ function arrangeIslands(groups, animate=true) {
     g.vx=0;g.vy=0;
     if(index===0){g.targetX=-g.w/2;g.targetY=-g.h/2;g.spawnAngle=0;placed.push(g);return;}
     const size=Math.max(g.w,g.h),angleOffset=Math.random()*Math.PI*2;
+    // Emphasized rankings occupy the compact core; nonmatching rankings
+    // occupy the irregular perimeter beyond a deliberate empty moat.
     const idealRadius=hasSelected&&matching.includes(g)
-      ?Math.max(390,size*.72)+Math.sqrt(index)*Math.max(150,forces.coreSpacing*.72)
-      :Math.max(430,size*.78)+Math.sqrt(index)*Math.max(190,forces.separation*.34);
+      ?Math.max(145,size*.34)+Math.sqrt(index)*Math.max(85,forces.coreSpacing*.38)
+      :Math.max(1050,size*1.9)+Math.sqrt(index)*Math.max(220,forces.separation*.38);
     let best=null,bestScore=Infinity;
     for(let k=0;k<180;k++){
       const angle=angleOffset+k*Math.PI*2/180;
@@ -99,7 +101,12 @@ function arrangeIslands(groups, animate=true) {
 function animateIslands(groups, slowAnimation=false) {
   if(state.animationFrame)cancelAnimationFrame(state.animationFrame);
   const launchInterval=slowAnimation?1150:850,maxSpeed=slowAnimation?235:285;
-  const bodies=groups.map((g,i)=>{
+  const hasEmphasis=!!state.clusterTag;
+  const launchOrder=hasEmphasis
+    ?groups.filter(g=>!g.items[0].tags.some(t=>tagKey(t)===tagKey(state.clusterTag)))
+      .concat(groups.filter(g=>g.items[0].tags.some(t=>tagKey(t)===tagKey(state.clusterTag))))
+    :groups.slice();
+  const bodies=launchOrder.map((g,i)=>{
     const el=layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]');if(!el)return null;
     const w=el.offsetWidth||320,h=el.offsetHeight||300;
     const tx=g.targetX,ty=g.targetY;
@@ -162,12 +169,8 @@ function animateIslands(groups, slowAnimation=false) {
     }
     const allLaunched=launchedCount===bodies.length;
     const stable=active.every(b=>Math.hypot(b.tx-b.x,b.ty-b.y)<6&&Math.hypot(b.vx,b.vy)<7);
-    const timeout=elapsed>(Math.max(0,bodies.length-1)*launchInterval+28000);
-    if(!allLaunched||(!stable&&!timeout))state.animationFrame=requestAnimationFrame(tick);
-    else{
-      for(const b of bodies){b.el.style.left=b.tx+"px";b.el.style.top=b.ty+"px";b.g.x=b.tx;b.g.y=b.ty;b.vx=0;b.vy=0;}
-      state.animationFrame=null;
-    }
+    if(!allLaunched||!stable)state.animationFrame=requestAnimationFrame(tick);
+    else state.animationFrame=null;
   }
   state.animationFrame=requestAnimationFrame(tick);
 }
