@@ -133,123 +133,76 @@ function arrangeIslands(groups, animate=true) {
   state.islands=new Map(groups.map(g=>[g.key,g]));
 }
 function animateIslands(groups, slowAnimation=false) {
-  if(state.animationFrame) cancelAnimationFrame(state.animationFrame);
-  const elements=groups.map(g=>layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]'));
-  const width=320,height=260,gap=24;
-  // Give each boat enough time to clear the crowded launch area before
-  // the next one enters; otherwise simultaneous center overlap creates a cross.
-  const launchInterval=slowAnimation?1050:820;
-  const speed=slowAnimation?260:330;
-  const spring=1.9,damping=.86;
+  if(state.animationFrame)cancelAnimationFrame(state.animationFrame);
+  const launchInterval=slowAnimation?1150:850,maxSpeed=slowAnimation?235:285;
   const bodies=groups.map((g,i)=>{
-    const el=elements[i];
-    if(!el)return null;
-    const tilt=(Math.random()-.5)*8;
-    el.style.left=(-width/2)+"px";el.style.top=(-height/2)+"px";
-    el.style.opacity="0";el.style.transform="scale(.88) rotate("+tilt+"deg)";
-    el.style.transition="none";
-    return {g,el,x:-width/2,y:-height/2,vx:0,vy:0,launched:false,settled:false,launchAt:i*launchInterval,tilt};
+    const el=layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]');if(!el)return null;
+    const w=el.offsetWidth||320,h=el.offsetHeight||300;
+    // Convert the layout's 320x260 reference point to the actual card dimensions.
+    const tx=g.targetX+160-w/2,ty=g.targetY+130-h/2;
+    const angle=i*2.399963229728653+(Math.random()-.5)*.45,radius=i===0?0:Math.min(34,8+i*1.2);
+    const x=Math.cos(angle)*radius-w/2,y=Math.sin(angle)*radius-h/2;
+    el.style.left=x+"px";el.style.top=y+"px";el.style.opacity="0";el.style.transform="scale(.94)";el.style.transition="none";
+    return {g,el,x,y,tx,ty,vx:0,vy:0,launched:false,settled:false,launchAt:i*launchInterval,order:i,w,h};
   }).filter(Boolean);
-  const startTime=performance.now();
-  let lastTime=startTime;
-  let launchedCount=0;
-  function tick(now) {
-    const dt=Math.min(.032,Math.max(.001,(now-lastTime)/1000));
-    lastTime=now;
-    const elapsed=now-startTime;
-    // Rankings launch one at a time. Hidden, unlaunched cards do not participate
-    // in collisions, so the moving card genuinely travels through the visible sea.
-    for(const b of bodies) {
-      if(!b.launched && elapsed>=b.launchAt) {
-        b.launched=true;launchedCount++;
-        b.el.style.opacity="1";
-        b.el.style.transform="scale(1) rotate(0deg)";
-      }
-    }
+  const startTime=performance.now();let lastTime=startTime,launchedCount=0;const padding=18;
+  function clampSpeed(b){const s=Math.hypot(b.vx,b.vy);if(s>maxSpeed){b.vx=b.vx/s*maxSpeed;b.vy=b.vy/s*maxSpeed;}}
+  function tick(now){
+    const dt=Math.min(.025,Math.max(.001,(now-lastTime)/1000));lastTime=now;const elapsed=now-startTime;
+    for(const b of bodies)if(!b.launched&&elapsed>=b.launchAt){b.launched=true;launchedCount++;b.el.style.opacity="1";b.el.style.transform="scale(1)";}
     const active=bodies.filter(b=>b.launched);
-    // The current boat steers toward its destination. Other rankings have soft
-    // springs toward their own resting places, allowing the wake to close behind it.
-    active.forEach(b=>{
-      if(b.settled)return;
-      const tx=b.g.targetX,ty=b.g.targetY;
-      const dx=tx-b.x,dy=ty-b.y,dist=Math.hypot(dx,dy);
-      if(dist<13 && Math.hypot(b.vx,b.vy)<34) {
-        b.x=tx;b.y=ty;b.vx=0;b.vy=0;b.settled=true;return;
-      }
-      const steer=Math.min(speed,dist*2.2);
-      if(dist>0.01){b.vx+=(dx/dist)*steer*dt;b.vy+=(dy/dist)*steer*dt;}
-      const maxSpeed=speed*1.25,velocity=Math.hypot(b.vx,b.vy);
-      if(velocity>maxSpeed){b.vx=b.vx/velocity*maxSpeed;b.vy=b.vy/velocity*maxSpeed;}
-    });
-    // Resolve rectangular collisions in several small passes. The active boat
-    // yields little ground; neighboring rankings receive most of the displacement.
-    for(let pass=0;pass<3;pass++) {
-      for(let i=0;i<active.length;i++)for(let j=i+1;j<active.length;j++) {
-        const a=active[i],b=active[j];
-        const dx=(b.x+width/2)-(a.x+width/2);
-        const dy=(b.y+height/2)-(a.y+height/2);
-        const ox=width+gap-Math.abs(dx),oy=height+gap-Math.abs(dy);
-        if(ox<=0||oy<=0)continue;
-        // Use a smooth radial/elliptical collision field rather than choosing
-        // only the horizontal or vertical axis. Axis-only resolution is what
-        // makes the whole crowd spread into a cross.
-        const rx=(width+gap)/2,ry=(height+gap)/2;
-        const nxRaw=dx/rx,nyRaw=dy/ry;
-        const normalizedDistance=Math.hypot(nxRaw,nyRaw);
-        if(normalizedDistance>=2)continue;
-        let nx,ny;
-        if(normalizedDistance<0.001) {
-          // At the exact spawn point, choose a pair-specific direction derived
-          // from both destinations, so every boat does not push on one axis.
-          nxRaw=(b.g.targetX-a.g.targetX)/rx;
-          nyRaw=(b.g.targetY-a.g.targetY)/ry;
-          const n=Math.max(.001,Math.hypot(nxRaw,nyRaw));
-          nx=nxRaw/n;ny=nyRaw/n;
-        } else {
-          nx=nxRaw/normalizedDistance;
-          ny=nyRaw/normalizedDistance;
+    for(const b of active){
+      const dx=b.tx-b.x,dy=b.ty-b.y;
+      b.vx+=dx*(b.settled?1.35:1.75)*dt;b.vy+=dy*(b.settled?1.35:1.75)*dt;
+      const drag=Math.exp(-(b.settled?2.45:1.25)*dt);b.vx*=drag;b.vy*=drag;
+      if(!b.settled)clampSpeed(b);
+    }
+    // Soft pressure displaces settled neighbors before contact; their destination
+    // spring later closes the wake left by the passing ranking.
+    for(let i=0;i<active.length;i++)for(let j=i+1;j<active.length;j++){
+      const a=active[i],b=active[j];
+      const dx=(b.x+b.w/2)-(a.x+a.w/2),dy=(b.y+b.h/2)-(a.y+a.h/2),dist=Math.hypot(dx,dy);
+      const aNewer=a.order>b.order,bNewer=b.order>a.order;
+      if(dist>1&&dist<245){
+        const newer=aNewer?a:b,older=aNewer?b:a;
+        if(!newer.settled&&older.settled){
+          const ux=((older.x+older.w/2)-(newer.x+newer.w/2))/dist,uy=((older.y+older.h/2)-(newer.y+newer.h/2))/dist;
+          const impulse=(1-dist/245)*48*dt;older.vx+=ux*impulse;older.vy+=uy*impulse;
         }
-        const overlap=2-normalizedDistance;
-        const penetration=overlap*Math.min(rx,ry)*.72;
-        const aMoving=!a.settled,bMoving=!b.settled;
-        // A moving boat gives way only slightly; the settled shoreline absorbs
-        // most of the displacement and then springs back to close the wake.
-        // A settled ranking yields enough to let the incoming boat through,
-        // while its target spring gradually restores the inner/outer silhouette.
-        const aShare=aMoving?(bMoving?.5:.38):(bMoving?.62:.5);
-        const bShare=bMoving?(aMoving?.5:.38):(aMoving?.62:.5);
-        const total=aShare+bShare;
-        const moveA=penetration*aShare/total*.42;
-        const moveB=penetration*bShare/total*.42;
-        a.x-=nx*moveA;a.y-=ny*moveA;b.x+=nx*moveB;b.y+=ny*moveB;
-        const impulse=Math.min(70,penetration*1.25);
-        if(aMoving){a.vx-=nx*impulse*.22;a.vy-=ny*impulse*.22;}
-        if(bMoving){b.vx+=nx*impulse*.22;b.vy+=ny*impulse*.22;}
+      }
+      const ox=(a.w+b.w)/2+padding-Math.abs(dx),oy=(a.h+b.h)/2+padding-Math.abs(dy);
+      if(ox<=0||oy<=0)continue;
+      let nx,ny;
+      if(dist<1){const tx=b.tx-a.tx,ty=b.ty-a.ty,len=Math.max(1,Math.hypot(tx,ty));nx=tx/len;ny=ty/len;}
+      else{nx=dx/dist;ny=dy/dist;}
+      const penetration=Math.min(Math.abs(nx)>.001?ox/Math.abs(nx):Infinity,Math.abs(ny)>.001?oy/Math.abs(ny):Infinity);
+      if(!Number.isFinite(penetration)||penetration<=0)continue;
+      let shareA=.5,shareB=.5;
+      if(aNewer&&!a.settled&&b.settled){shareA=.16;shareB=.84;}
+      else if(bNewer&&!b.settled&&a.settled){shareA=.84;shareB=.16;}
+      else if(!a.settled&&b.settled){shareA=.2;shareB=.8;}
+      else if(a.settled&&!b.settled){shareA=.8;shareB=.2;}
+      const correction=Math.min(penetration*.88,Math.max(a.w,a.h,b.w,b.h)*.8);
+      a.x-=nx*correction*shareA;a.y-=ny*correction*shareA;b.x+=nx*correction*shareB;b.y+=ny*correction*shareB;
+      const relative=(b.vx-a.vx)*nx+(b.vy-a.vy)*ny;
+      if(relative<0){
+        const impulse=Math.min(115,-relative*.52+penetration*.18);
+        if(aNewer&&!a.settled&&b.settled){b.vx+=nx*impulse;b.vy+=ny*impulse;}
+        else if(bNewer&&!b.settled&&a.settled){a.vx-=nx*impulse;a.vy-=ny*impulse;}
+        else{a.vx-=nx*impulse*shareA;a.vy-=ny*impulse*shareA;b.vx+=nx*impulse*shareB;b.vy+=ny*impulse*shareB;}
       }
     }
-    active.forEach(b=>{
-      if(b.settled) {
-        // Settled cards can be disturbed by a passing boat, then ease back into
-        // their own place once the pressure from the wake has passed.
-        const dx=b.g.targetX-b.x,dy=b.g.targetY-b.y;
-        b.vx+=dx*spring*dt;b.vy+=dy*spring*dt;
-      }
-      b.vx*=Math.pow(damping,dt*60);b.vy*=Math.pow(damping,dt*60);
-      b.x+=b.vx*dt;b.y+=b.vy*dt;
-      b.el.style.left=b.x+"px";b.el.style.top=b.y+"px";
-      b.g.x=b.x;b.g.y=b.y;
-    });
+    for(const b of active){
+      const distance=Math.hypot(b.tx-b.x,b.ty-b.y),speed=Math.hypot(b.vx,b.vy);
+      if(!b.settled&&distance<15&&speed<25){b.x=b.tx;b.y=b.ty;b.vx=0;b.vy=0;b.settled=true;}
+      b.el.style.left=b.x+"px";b.el.style.top=b.y+"px";b.g.x=b.x;b.g.y=b.y;
+    }
     const allLaunched=launchedCount===bodies.length;
-    const unsettled=active.some(b=>!b.settled);
-    const stillMoving=active.some(b=>Math.hypot(b.vx,b.vy)>7);
-    if(!allLaunched||unsettled||stillMoving) {
-      state.animationFrame=requestAnimationFrame(tick);
-    } else {
-      // Final gentle settle keeps cards aligned with their computed resting positions.
-      active.forEach(b=>{
-        b.el.style.left=b.g.targetX+"px";b.el.style.top=b.g.targetY+"px";
-        b.g.x=b.g.targetX;b.g.y=b.g.targetY;
-      });
+    const stable=active.every(b=>Math.hypot(b.tx-b.x,b.ty-b.y)<6&&Math.hypot(b.vx,b.vy)<7);
+    const timeout=elapsed>(Math.max(0,bodies.length-1)*launchInterval+28000);
+    if(!allLaunched||(!stable&&!timeout))state.animationFrame=requestAnimationFrame(tick);
+    else{
+      for(const b of bodies){b.el.style.left=b.tx+"px";b.el.style.top=b.ty+"px";b.g.x=b.tx;b.g.y=b.ty;b.vx=0;b.vy=0;}
       state.animationFrame=null;
     }
   }
