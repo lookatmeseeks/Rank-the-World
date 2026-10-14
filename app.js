@@ -644,10 +644,10 @@ function focusContinent(group) {
   const masses = group.masses;
   if (!masses.length) return;
   const bounds = masses.map(m => ({ m, b: massBounds(m) }));
-  const minX = Math.min(...bounds.map(v => v.m.x + v.b.x)) - 120;
-  const maxX = Math.max(...bounds.map(v => v.m.x + v.b.x + v.b.w)) + 120;
-  const minY = Math.min(...bounds.map(v => v.m.y + v.b.y)) - 110;
-  const maxY = Math.max(...bounds.map(v => v.m.y + v.b.y + v.b.h)) + 110;
+  const minX = Math.min(...bounds.map(v => v.b.x)) - 120;
+  const maxX = Math.max(...bounds.map(v => v.b.x + v.b.w)) + 120;
+  const minY = Math.min(...bounds.map(v => v.b.y)) - 110;
+  const maxY = Math.max(...bounds.map(v => v.b.y + v.b.h)) + 110;
   const rect = viewport.getBoundingClientRect();
   // Stay above the continent-LOD threshold so the selected continent opens
   // directly to its complete country layout.
