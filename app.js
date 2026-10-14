@@ -20,6 +20,7 @@ const thumbnailCache = new Map();
 const state = {
   rankings: [], landmasses: [], nextRankingId: 1, nextLandmassId: 1,
   zoom: .16, panX: 0, panY: 0, selectedLandmassId: null, selectedRankingId: null,
+  viewLevel: "world", activeCountryId: null, activeCategory: null,
   pointer: null, cameraFrame: null, searchMatches: [], searchIndex: -1, activeContinent: null, activeContinentExitZoom: null
 };
 const MIN_ZOOM = .055, MAX_ZOOM = 2.4;
@@ -63,6 +64,16 @@ function migrateRanking(ranking) {
   return ranking;
 }
 function cityName(ranking) { return ranking.city || "General"; }
+function viewZoomRange() {
+  if (state.viewLevel === "world") return { min: MIN_ZOOM, max: .24 };
+  if (state.viewLevel === "continent") return { min: continentLayoutFitZoom(state.activeContinent), max: .58 };
+  if (state.viewLevel === "country") return { min: .25, max: .58 };
+  return { min: .58, max: .92 };
+}
+function localZoomPercent() {
+  const range = viewZoomRange();
+  return Math.round(Math.max(0, Math.min(1, (state.zoom - range.min) / Math.max(.001, range.max - range.min))) * 99 + 1);
+}
 function continentForMass(mass) {
   const member = state.rankings.find(r => r.landmassId === mass.id);
   return member ? (member.continent || inferContinent(member)) : "Other";
@@ -382,8 +393,8 @@ function drawLandmass(mass) {
   c.fillStyle = mass.color + "17"; c.fill();
   c.lineWidth = selected ? 2.2 / state.zoom : 1.3 / state.zoom;
   c.strokeStyle = selected ? "#c9bcff" : mass.color + "9a"; c.stroke();
-  const ranks = bounds.items, cx = mass.x, cy = mass.y;
-  if (state.zoom < .25) {
+  const ranks = state.viewLevel === "list" && state.activeCategory ? bounds.items.filter(it => key(cityName(it.ranking)) === key(state.activeCategory)) : bounds.items, cx = mass.x, cy = mass.y;
+  if (state.viewLevel === "world") {
     const unit = 1 / state.zoom;
     c.fillStyle = "#151822"; c.beginPath(); c.ellipse(cx, cy, 34 * unit, 26 * unit, 0, 0, Math.PI * 2); c.fill();
     c.strokeStyle = mass.color; c.lineWidth = 1.5 / state.zoom; c.stroke();
@@ -402,7 +413,7 @@ function drawLandmass(mass) {
   c.fillText(mass.name, cx, bounds.y - 34);
   c.fillStyle = "#7f879a"; c.font = "11px system-ui";
   c.fillText(ranks.length + (ranks.length === 1 ? " ranking" : " rankings"), cx, bounds.y - 16);
-  if (state.zoom < .58) {
+  if (state.viewLevel === "continent" || state.viewLevel === "country") {
     const cities = new Map();
     ranks.forEach(it => {
       const city = cityName(it.ranking);
@@ -426,7 +437,7 @@ function drawLandmass(mass) {
   }
   ranks.forEach(({ ranking: r, x, y }) => {
     const rx = mass.x + x, ry = mass.y + y;
-    if (state.zoom < .58) {
+    if (state.viewLevel === "continent" || state.viewLevel === "country") {
       drawThumbnail(r, rx - 25, ry - 25, 50, c);
       if (state.zoom > .34) {
         c.textAlign = "center"; c.textBaseline = "top"; c.fillStyle = "#e9eaf2";
@@ -473,7 +484,7 @@ function draw() {
   ctx.translate(rect.width / 2 + state.panX, rect.height / 2 + state.panY);
   ctx.scale(state.zoom, state.zoom);
   drawGrid();
-  if (state.zoom < .25 && !state.activeContinent) {
+  if (state.viewLevel === "world") {
     const tl = worldPoint(0, 0), br = worldPoint(rect.width, rect.height);
     continentGroups().forEach(group => {
       const unit = 1 / state.zoom;
@@ -493,23 +504,33 @@ function draw() {
       ctx.fillText(group.masses.length+" countries · "+group.count+" lists",group.x,group.y+radius*1.12,240*unit);
     });
     ctx.restore();
-    zoomLabel.textContent = Math.round(state.zoom * 100) + "%";
+    zoomLabel.textContent = localZoomPercent() + "%";
     countLabel.textContent = state.rankings.length + (state.rankings.length === 1 ? " ranking" : " rankings") + " · " + continentGroups().length + " continents";
     $("#canvas-empty").hidden = state.rankings.length > 0;
     $("#world-map").setAttribute("aria-label", state.rankings.length + " rankings across " + continentGroups().length + " continents");
     return;
   }
   if(state.activeContinent)drawContinentBoundary(state.activeContinent);
-  const renderMasses=state.activeContinent?state.landmasses.filter(m=>continentForMass(m)===state.activeContinent).map(displayMass):state.landmasses;
+  const renderMasses=state.viewLevel==="world" ? state.landmasses : state.landmasses
+    .filter(m => state.activeContinent && continentForMass(m)===state.activeContinent)
+    .filter(m => state.viewLevel!=="country" && state.viewLevel!=="list" || m.id===state.activeCountryId)
+    .map(displayMass);
   const visible = renderMasses.map(m => ({ mass: m, bounds: massBounds(m) }))
     .filter(({ bounds }) => {
       const tl = worldPoint(0, 0), br = worldPoint(rect.width, rect.height);
       return bounds.x + bounds.w > tl.x - 250 && bounds.x < br.x + 250 && bounds.y + bounds.h > tl.y - 250 && bounds.y < br.y + 250;
     }).sort((a, b) => a.mass.id.localeCompare(b.mass.id));
-  visible.forEach(({ mass }) => drawLandmass(mass));
+  visible.forEach(({ mass }) => {
+    if (state.viewLevel === "list") {
+      const original = state.activeCategory;
+      // drawLandmass reads the active category to show only this category's rankings.
+      drawLandmass(mass);
+      state.activeCategory = original;
+    } else drawLandmass(mass);
+  });
   ctx.restore();
-  zoomLabel.textContent = Math.round(state.zoom * 100) + "%";
-  countLabel.textContent = state.rankings.length + (state.rankings.length === 1 ? " ranking" : " rankings") + " · " + state.landmasses.length + " countries";
+  zoomLabel.textContent = localZoomPercent() + "%";
+  countLabel.textContent = state.viewLevel === "world" ? state.rankings.length + (state.rankings.length === 1 ? " ranking" : " rankings") + " · " + state.landmasses.length + " countries" : state.viewLevel === "continent" ? state.activeContinent + " · " + state.landmasses.filter(m => continentForMass(m) === state.activeContinent).length + " countries" : state.viewLevel === "country" ? (state.landmasses.find(m => m.id === state.activeCountryId)?.name || "Country") + " · categories" : (state.activeCategory || "Category") + " · rankings";
   $("#canvas-empty").hidden = state.rankings.length > 0;
   $("#world-map").setAttribute("aria-label", state.rankings.length + " rankings across " + state.landmasses.length + " countries");
 }
@@ -517,32 +538,84 @@ function setCamera(zoom, panX, panY) {
   state.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
   state.panX = panX; state.panY = panY; draw();
 }
+function focusCountry(mass, initialZoom = .30) {
+  if (!mass) return;
+  state.viewLevel = "country";
+  state.activeCountryId = mass.id;
+  state.activeCategory = null;
+  state.selectedLandmassId = mass.id;
+  const shown = displayMass(mass);
+  const z = initialZoom;
+  const rect = viewport.getBoundingClientRect();
+  setCamera(z, -shown.x * z, -shown.y * z);
+}
+function categoryAt(mass, p) {
+  if (!mass) return null;
+  const shown = displayMass(mass), items = groupsForMass(shown), groups = new Map();
+  items.forEach(item => {
+    const name = cityName(item.ranking);
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(item);
+  });
+  for (const [name, itemsInCategory] of groups) {
+    const x = shown.x + itemsInCategory.reduce((sum, item) => sum + item.x, 0) / itemsInCategory.length;
+    const y = shown.y + itemsInCategory.reduce((sum, item) => sum + item.y, 0) / itemsInCategory.length;
+    if (Math.abs(p.x - x) <= 110 && Math.abs(p.y - y) <= 70) return name;
+  }
+  return null;
+}
+function focusCategory(mass, category, initialZoom = .60) {
+  if (!mass || !category) return false;
+  state.viewLevel = "list";
+  state.activeCountryId = mass.id;
+  state.activeCategory = category;
+  state.selectedLandmassId = mass.id;
+  const shown = displayMass(mass), items = groupsForMass(shown).filter(it => key(cityName(it.ranking)) === key(category));
+  if (!items.length) return false;
+  const x = shown.x + items.reduce((sum, item) => sum + item.x, 0) / items.length;
+  const y = shown.y + items.reduce((sum, item) => sum + item.y, 0) / items.length;
+  setCamera(initialZoom, -x * initialZoom, -y * initialZoom);
+  return true;
+}
 function zoomAt(nextZoom, sx, sy) {
-  const rect = viewport.getBoundingClientRect(), z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
-  if(state.activeContinent) {
-    const fitZoom=continentLayoutFitZoom(state.activeContinent);
-    // The active continent stays selected and centred. The boundary is the
-    // source of truth for the minimum zoom; crossing it returns to world view.
-    if(z < fitZoom) { fitWorld(); return; }
-    const bounds=continentLayoutBounds(state.activeContinent);
-    state.zoom=z; state.panX=-bounds.cx*z; state.panY=-bounds.cy*z;
-    draw(); return;
-  }
-  // Never reveal the unrelated world-coordinate country layout by merely
-  // scrolling across the world/continent LOD threshold. A continent must be
-  // identified first, using the world-space point under the cursor.
-  if(state.zoom < .25 && z >= .25) {
-    const group=findContinentAt(worldPoint(sx,sy));
-    if(group) { focusContinent(group); return; }
-    state.zoom=Math.min(.249,z);
-    const p=worldPoint(sx,sy);
-    state.panX=sx-rect.width/2-p.x*state.zoom;
-    state.panY=sy-rect.height/2-p.y*state.zoom;
-    draw(); return;
-  }
+  const rect = viewport.getBoundingClientRect(), range = viewZoomRange();
+  const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
   const p = worldPoint(sx, sy);
-  if(z < .25) state.activeContinentExitZoom=null;
-  state.zoom = z; state.panX = sx - rect.width / 2 - p.x * z; state.panY = sy - rect.height / 2 - p.y * z;
+  if (z > range.max) {
+    if (state.viewLevel === "world") {
+      const group = findContinentAt(p);
+      if (group) { focusContinent(group); state.viewLevel = "continent"; draw(); return; }
+      state.zoom = range.max; state.panX = sx - rect.width / 2 - p.x * state.zoom; state.panY = sy - rect.height / 2 - p.y * state.zoom; draw(); return;
+    }
+    if (state.viewLevel === "continent") {
+      const mass = findLandmassAt(p);
+      if (mass) { focusCountry(mass, .30); return; }
+      state.zoom = range.max; state.panX = -continentLayoutBounds(state.activeContinent).cx * state.zoom; state.panY = -continentLayoutBounds(state.activeContinent).cy * state.zoom; draw(); return;
+    }
+    if (state.viewLevel === "country") {
+      const mass = state.landmasses.find(m => m.id === state.activeCountryId);
+      const category = categoryAt(mass, p);
+      if (category && focusCategory(mass, category, .60)) return;
+      state.zoom = range.max; state.panX = -displayMass(mass).x * state.zoom; state.panY = -displayMass(mass).y * state.zoom; draw(); return;
+    }
+    state.zoom = range.max;
+  } else if (z < range.min) {
+    if (state.viewLevel === "list") {
+      state.viewLevel = "country"; state.activeCategory = null;
+      const mass = state.landmasses.find(m => m.id === state.activeCountryId);
+      if (mass) { focusCountry(mass, .58); return; }
+    } else if (state.viewLevel === "country") {
+      state.viewLevel = "continent"; state.activeCountryId = null; state.activeCategory = null;
+      const bounds = continentLayoutBounds(state.activeContinent);
+      setCamera(.58, -bounds.cx * .58, -bounds.cy * .58); return;
+    } else if (state.viewLevel === "continent") {
+      fitWorld(); return;
+    }
+  }
+  const clamped = Math.max(range.min, Math.min(range.max, z));
+  state.zoom = clamped;
+  state.panX = sx - rect.width / 2 - p.x * clamped;
+  state.panY = sy - rect.height / 2 - p.y * clamped;
   draw();
 }
 function animateCamera(stages) {
@@ -715,6 +788,7 @@ function addLargeTestSet() {
   changed(); fitWorld(); notify(added ? "Added " + added + " test rankings. The map now contains " + state.rankings.length + "." : "The large test set is already on the map.");
 }
 function fitWorld() {
+  state.viewLevel="world"; state.activeCountryId=null; state.activeCategory=null;
   state.activeContinent=null;
   state.activeContinentExitZoom=null;
   const groups = continentGroups();
@@ -730,6 +804,7 @@ function fitWorld() {
 }
 function focusContinent(group) {
   if(!group.masses.length)return;
+  state.viewLevel="continent"; state.activeCountryId=null; state.activeCategory=null;
   if(state.cameraFrame) cancelAnimationFrame(state.cameraFrame);
   state.cameraFrame=null;
   state.activeContinent=group.name;
@@ -779,16 +854,16 @@ function chooseLandmassSearch(m) {
   state.selectedLandmassId=m.id; updateLandmassPanel();
   draw();
 }
-function resetMap() { state.activeContinent=null; state.activeContinentExitZoom=null; setCamera(.16, 0, 0); state.selectedLandmassId = null; state.selectedRankingId = null; updateLandmassPanel(); }
+function resetMap() { state.viewLevel="world"; state.activeCountryId=null; state.activeCategory=null; state.activeContinent=null; state.activeContinentExitZoom=null; setCamera(.16, 0, 0); state.selectedLandmassId = null; state.selectedRankingId = null; updateLandmassPanel(); }
 function canvasPointerDown(e) {
   if (e.button !== 0 && e.button !== 1) return;
   if (e.button === 1) e.preventDefault();
   const rect = viewport.getBoundingClientRect(), sx = e.clientX - rect.left, sy = e.clientY - rect.top;
-  const p = worldPoint(sx, sy), continent = state.zoom < .25 && !state.activeContinent ? findContinentAt(p) : null, rank = findRankingAt(p), mass = findLandmassAt(p);
+  const p = worldPoint(sx, sy), continent = state.viewLevel === "world" ? findContinentAt(p) : null, rank = findRankingAt(p), mass = findLandmassAt(p);
   let mode = e.button === 1 ? "pan" : "select-empty";
   if (e.button === 0 && continent) mode = "select-continent";
   else if (e.button === 0 && mass) mode = e.shiftKey || e.altKey ? "move-mass" : "select-mass";
-  if (e.button === 0 && rank && state.zoom >= .58) mode = "select-rank";
+  if (e.button === 0 && rank && state.viewLevel === "list") mode = "select-rank";
   state.pointer = { id: e.pointerId, button: e.button, x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, panX: state.panX, panY: state.panY, mass, rank, continent, mode, massX: mass ? mass.x : 0, massY: mass ? mass.y : 0, moved: false };
   viewport.setPointerCapture(e.pointerId);
 }
@@ -819,8 +894,8 @@ function canvasPointerUp(e) {
   if (p.mode === "select-rank" && p.rank) { openRanking(p.rank); return; }
   if (p.mode === "select-continent" && p.continent) { state.selectedLandmassId = null; state.selectedRankingId = null; updateLandmassPanel(); focusContinent(p.continent); return; }
   if (p.mode === "select-mass" && p.mass) {
+    if (state.viewLevel === "continent") { focusCountry(p.mass, .30); return; }
     selectMass(p.mass);
-    if (state.zoom < .25) flyToWorld(p.mass.x, p.mass.y, .42);
   } else if (p.mode === "select-empty") { selectMass(null); }
 }
 viewport.addEventListener("pointerdown", canvasPointerDown);
