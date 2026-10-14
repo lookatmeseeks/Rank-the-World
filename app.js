@@ -607,9 +607,24 @@ function zoomAt(nextZoom, sx, sy) {
     state.zoom = range.max;
   } else if (z < range.min) {
     if (state.viewLevel === "list") {
-      state.viewLevel = "country"; state.activeCategory = null;
       const mass = state.landmasses.find(m => m.id === state.activeCountryId);
-      if (mass) { focusCountry(mass, .95); return; }
+      const category = state.activeCategory;
+      if (mass) {
+        let target = null;
+        if (category) {
+          const shown = displayMass(mass);
+          const items = groupsForMass(shown).filter(item => key(cityName(item.ranking)) === key(category));
+          if (items.length) {
+            target = {
+              x: shown.x + items.reduce((sum, item) => sum + item.x, 0) / items.length,
+              y: shown.y + items.reduce((sum, item) => sum + item.y, 0) / items.length
+            };
+          }
+        }
+        focusCountry(mass, .95, target);
+        return;
+      }
+      state.viewLevel = "country"; state.activeCategory = null;
     } else if (state.viewLevel === "country") {
       state.viewLevel = "continent"; state.activeCountryId = null; state.activeCategory = null;
       const bounds = continentLayoutBounds(state.activeContinent);
