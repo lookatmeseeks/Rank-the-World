@@ -444,9 +444,9 @@ function draw() {
   visible.forEach(({ mass }) => drawLandmass(mass));
   ctx.restore();
   zoomLabel.textContent = Math.round(state.zoom * 100) + "%";
-  countLabel.textContent = state.rankings.length + (state.rankings.length === 1 ? " ranking" : " rankings") + " · " + state.landmasses.length + " landmasses";
+  countLabel.textContent = state.rankings.length + (state.rankings.length === 1 ? " ranking" : " rankings") + " · " + state.landmasses.length + " countries";
   $("#canvas-empty").hidden = state.rankings.length > 0;
-  $("#world-map").setAttribute("aria-label", state.rankings.length + " rankings across " + state.landmasses.length + " landmasses");
+  $("#world-map").setAttribute("aria-label", state.rankings.length + " rankings across " + state.landmasses.length + " countries");
 }
 function setCamera(zoom, panX, panY) {
   state.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
@@ -552,7 +552,7 @@ function openRanking(ranking) {
     const el = document.createElement("span"); el.className = "tag"; el.textContent = "# " + tag; return el;
   }));
   const mass = state.landmasses.find(m => m.id === ranking.landmassId);
-  $("#ranking-landmass-label").textContent = mass ? "Landmass: " + mass.name : "";
+  $("#ranking-landmass-label").textContent = mass ? "Country: " + mass.name : "";
   draw();
   if (rankingDialog.showModal) rankingDialog.showModal();
 }
@@ -705,7 +705,7 @@ function canvasPointerUp(e) {
   if (p.mode === "move-mass" && p.mass && p.moved) {
     p.mass.manual = true;
     arrangeAutomaticLandmasses();
-    save(); draw(); updateLandmassPanel(); notify("Landmass repositioned without overlap."); return;
+    save(); draw(); updateLandmassPanel(); notify("Country repositioned without overlap."); return;
   }
   if (p.mode === "pan" || p.moved) return;
   if (p.mode === "select-rank" && p.rank) { openRanking(p.rank); return; }
