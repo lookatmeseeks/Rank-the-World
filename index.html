@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#101116">
-<meta name="description" content="Explore a world map of tier lists, from thematic landmasses to individual rankings.">
+<meta name="description" content="Explore tier lists by continent, series, category, and creator.">
 <title>Rank the World</title>
 <link rel="stylesheet" href="./styles.css">
 <script src="./app.js" defer></script>
@@ -24,13 +24,13 @@
   </div>
 </header>
 <main class="world">
-  <div class="canvas-help"><span class="help-icon">⌖</span> Middle-drag to pan · Scroll to zoom · Shift-drag a landmass to move it</div>
-  <div class="canvas-viewport" id="canvas-viewport" aria-label="Interactive ranking world map">
+  <div class="canvas-help"><span class="help-icon">⌖</span> Middle-drag to pan · Scroll to zoom · Shift-drag a country to move it</div>
+  <div class="canvas-viewport" id="canvas-viewport" aria-label="Interactive continent, country, category and ranking map">
     <canvas id="world-map"></canvas>
     <div class="canvas-empty" id="canvas-empty">
       <div class="empty-orbit"><span>R</span><i></i><i></i><i></i></div>
       <h1>Your world is empty</h1>
-      <p>Add rankings to form your first landmasses. The map reveals more detail as you zoom in.</p>
+      <p>Add rankings to form your first landmasses. Zoom in from continents to series, categories, and individual creator lists.</p>
       <div class="empty-actions"><button class="primary-button" id="empty-create" type="button">＋ Create ranking</button><button class="secondary-button" id="empty-test" type="button">＋ Load test world</button></div>
     </div>
     <aside class="landmass-panel" id="landmass-panel" hidden>
@@ -47,9 +47,9 @@
         <button class="secondary-button full-button" id="merge-landmass" type="button">Merge landmasses</button>
       </div>
       <div class="panel-section">
-        <p class="panel-note">Splitting creates a separate landmass for each ranking in this region. Shift-drag a landmass on the map to reposition it.</p>
+        <p class="panel-note">Splitting creates a separate country for each ranking in this country. Shift-drag a country on the map to reposition it.</p>
         <button class="secondary-button full-button" id="split-landmass" type="button">Split into separate landmasses</button>
-        <button class="danger-button full-button" id="delete-landmass" type="button">Delete landmass and rankings</button>
+        <button class="danger-button full-button" id="delete-landmass" type="button">Delete country and rankings</button>
       </div>
     </aside>
     <div class="zoom-controls"><button id="zoom-in" type="button" aria-label="Zoom in">＋</button><span id="zoom-level">16%</span><button id="zoom-out" type="button" aria-label="Zoom out">−</button><button id="reset-view" type="button" aria-label="Fit world" title="Fit world">⌖</button></div>
