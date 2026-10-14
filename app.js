@@ -433,13 +433,27 @@ function showSearchResults(query) {
 }
 function chooseSearchResult(r) {
   suggestions.hidden = true; searchInput.value = r.title;
-  const p = rankWorldPosition(r);
+  const p = rankWorldPosition(r), sameLandmass = state.selectedLandmassId === r.landmassId;
   state.selectedLandmassId = r.landmassId; state.selectedRankingId = r.id;
-  updateLandmassPanel(); flyToWorld(p.x, p.y, .92); draw();
+  updateLandmassPanel();
+  if (sameLandmass && state.zoom >= .25) {
+    const zoom = .92;
+    animateCamera([{ zoom, x: -p.x * zoom, y: -p.y * zoom, duration: 680 }]);
+  } else {
+    flyToWorld(p.x, p.y, .92);
+  }
+  draw();
 }
 function chooseLandmassSearch(m) {
   suggestions.hidden = true; searchInput.value = m.name;
-  state.selectedLandmassId = m.id; updateLandmassPanel(); flyToWorld(m.x, m.y, .42);
+  const sameLandmass = state.selectedLandmassId === m.id;
+  state.selectedLandmassId = m.id; updateLandmassPanel();
+  if (sameLandmass && state.zoom >= .25) {
+    const zoom = .42;
+    animateCamera([{ zoom, x: -m.x * zoom, y: -m.y * zoom, duration: 620 }]);
+  } else {
+    flyToWorld(m.x, m.y, .42);
+  }
 }
 function resetMap() { setCamera(.16, 0, 0); state.selectedLandmassId = null; state.selectedRankingId = null; updateLandmassPanel(); }
 function canvasPointerDown(e) {
