@@ -110,16 +110,34 @@ function displayMass(mass) {
 }
 function continentLayoutBounds(groupName) {
   const positions=[...activeCountryLayout(groupName).values()];
-  if(!positions.length)return {minX:0,maxX:0,minY:0,maxY:0,cx:0,cy:0};
-  const minX=Math.min(...positions.map(v=>v.x-v.w/2)), maxX=Math.max(...positions.map(v=>v.x+v.w/2));
-  const minY=Math.min(...positions.map(v=>v.y-v.h/2)), maxY=Math.max(...positions.map(v=>v.y+v.h/2));
-  return {minX,maxX,minY,maxY,cx:(minX+maxX)/2,cy:(minY+maxY)/2};
+  if(!positions.length)return {minX:0,maxX:0,minY:0,maxY:0,cx:0,cy:0,w:0,h:0};
+  // This rectangle is the continent's persistent camera boundary. It encloses
+  // every country's complete land shape, plus a small gap for the outline.
+  const padding=90;
+  const minX=Math.min(...positions.map(v=>v.x-v.w/2))-padding;
+  const maxX=Math.max(...positions.map(v=>v.x+v.w/2))+padding;
+  const minY=Math.min(...positions.map(v=>v.y-v.h/2))-padding;
+  const maxY=Math.max(...positions.map(v=>v.y+v.h/2))+padding;
+  return {minX,maxX,minY,maxY,cx:(minX+maxX)/2,cy:(minY+maxY)/2,w:maxX-minX,h:maxY-minY};
 }
 function continentLayoutFitZoom(groupName) {
   const bounds=continentLayoutBounds(groupName);
-  if(bounds.maxX===bounds.minX||bounds.maxY===bounds.minY)return .42;
+  if(!bounds.w||!bounds.h)return .42;
   const rect=viewport.getBoundingClientRect();
-  return Math.max(MIN_ZOOM,Math.min(.8,Math.min(rect.width/Math.max(1,bounds.maxX-bounds.minX),rect.height/Math.max(1,bounds.maxY-bounds.minY))*.88));
+  // Keep the full boundary inside the viewport, with room on every side.
+  return Math.max(MIN_ZOOM,Math.min(.8,Math.min(rect.width/bounds.w,rect.height/bounds.h)*.88));
+}
+function drawContinentBoundary(groupName) {
+  const b=continentLayoutBounds(groupName);
+  if(!b.w||!b.h)return;
+  ctx.save();
+  ctx.setLineDash([22,14]);
+  ctx.lineWidth=3/state.zoom;
+  ctx.strokeStyle="#a9b8ff";
+  ctx.globalAlpha=.9;
+  roundRect(ctx,b.minX,b.minY,b.w,b.h,46);
+  ctx.stroke();
+  ctx.restore();
 }
 function makeLandmass(name, autoKey, x, y, manual = false) {
   return { id: "land-" + state.nextLandmassId++, name, autoKey, x, y, color: colorFor(autoKey || name), manual, createdAt: state.nextLandmassId };
@@ -481,6 +499,7 @@ function draw() {
     $("#world-map").setAttribute("aria-label", state.rankings.length + " rankings across " + continentGroups().length + " continents");
     return;
   }
+  if(state.activeContinent)drawContinentBoundary(state.activeContinent);
   const renderMasses=state.activeContinent?state.landmasses.filter(m=>continentForMass(m)===state.activeContinent).map(displayMass):state.landmasses;
   const visible = renderMasses.map(m => ({ mass: m, bounds: massBounds(m) }))
     .filter(({ bounds }) => {
@@ -502,11 +521,23 @@ function zoomAt(nextZoom, sx, sy) {
   const rect = viewport.getBoundingClientRect(), z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
   if(state.activeContinent) {
     const fitZoom=continentLayoutFitZoom(state.activeContinent);
-    // Keep the complete country layout centred and visible. Only return to the
-    // world overview when the requested zoom would be too small to fit it.
-    if(z < fitZoom * .995) { fitWorld(); return; }
+    // The active continent stays selected and centred. The boundary is the
+    // source of truth for the minimum zoom; crossing it returns to world view.
+    if(z < fitZoom) { fitWorld(); return; }
     const bounds=continentLayoutBounds(state.activeContinent);
     state.zoom=z; state.panX=-bounds.cx*z; state.panY=-bounds.cy*z;
+    draw(); return;
+  }
+  // Never reveal the unrelated world-coordinate country layout by merely
+  // scrolling across the world/continent LOD threshold. A continent must be
+  // identified first, using the world-space point under the cursor.
+  if(state.zoom < .25 && z >= .25) {
+    const group=findContinentAt(worldPoint(sx,sy));
+    if(group) { focusContinent(group); return; }
+    state.zoom=Math.min(.249,z);
+    const p=worldPoint(sx,sy);
+    state.panX=sx-rect.width/2-p.x*state.zoom;
+    state.panY=sy-rect.height/2-p.y*state.zoom;
     draw(); return;
   }
   const p = worldPoint(sx, sy);
@@ -724,25 +755,29 @@ function showSearchResults(query) {
 }
 function chooseSearchResult(r) {
   suggestions.hidden = true; searchInput.value = r.title;
-  state.activeContinent=r.continent||inferContinent(r);
-  state.activeContinentExitZoom=Math.max(MIN_ZOOM*1.15,continentLayoutFitZoom(state.activeContinent)*.62);
-  const p = rankWorldPosition(r), sameLandmass = state.selectedLandmassId === r.landmassId;
+  const continent=continentGroups().find(g=>g.name===(r.continent||inferContinent(r)));
+  if(continent)focusContinent(continent);
+  const mass=state.landmasses.find(m=>m.id===r.landmassId);
+  const shown=mass?displayMass(mass):null;
+  const p=rankWorldPosition(r);
   state.selectedLandmassId = r.landmassId; state.selectedRankingId = r.id;
   updateLandmassPanel();
-  if (sameLandmass && state.zoom >= .25) {
-    const zoom = .92;
-    animateCamera([{ zoom, x: -p.x * zoom, y: -p.y * zoom, duration: 680 }]);
-  } else {
-    flyToWorld(p.x, p.y, .92);
+  if(shown) {
+    const zoom=Math.min(.92,Math.max(continentLayoutFitZoom(state.activeContinent),.58));
+    const bounds=continentLayoutBounds(state.activeContinent);
+    // Search focuses the result without losing the tracked continent.
+    const rect=viewport.getBoundingClientRect();
+    const targetX=rect.width/2-p.x*zoom, targetY=rect.height/2-p.y*zoom;
+    animateCamera([{zoom:Math.max(continentLayoutFitZoom(state.activeContinent),Math.min(.92,zoom)),x:targetX-rect.width/2,y:targetY-rect.height/2,duration:500}]);
   }
   draw();
 }
 function chooseLandmassSearch(m) {
-  suggestions.hidden=true; searchInput.value=m.name; state.activeContinent=continentForMass(m);
-  state.activeContinentExitZoom=Math.max(MIN_ZOOM*1.15,continentLayoutFitZoom(state.activeContinent)*.62);
-  const same=state.selectedLandmassId===m.id; state.selectedLandmassId=m.id; updateLandmassPanel();
-  const shown=displayMass(m), zoom=.42;
-  animateCamera([{zoom:Math.min(state.zoom,.22),x:state.panX,y:state.panY,duration:240},{zoom,x:-shown.x*zoom,y:-shown.y*zoom,duration:620}]);
+  suggestions.hidden=true; searchInput.value=m.name;
+  const group=continentGroups().find(g=>g.name===continentForMass(m));
+  if(group)focusContinent(group);
+  state.selectedLandmassId=m.id; updateLandmassPanel();
+  draw();
 }
 function resetMap() { state.activeContinent=null; state.activeContinentExitZoom=null; setCamera(.16, 0, 0); state.selectedLandmassId = null; state.selectedRankingId = null; updateLandmassPanel(); }
 function canvasPointerDown(e) {
