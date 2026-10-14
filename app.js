@@ -538,7 +538,7 @@ function setCamera(zoom, panX, panY) {
   state.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
   state.panX = panX; state.panY = panY; draw();
 }
-function focusCountry(mass, initialZoom = .98) {
+function focusCountry(mass, initialZoom = .98, focusPoint = null) {
   if (!mass) return;
   state.viewLevel = "country";
   state.activeCountryId = mass.id;
@@ -546,8 +546,10 @@ function focusCountry(mass, initialZoom = .98) {
   state.selectedLandmassId = mass.id;
   const shown = displayMass(mass);
   const bounds = massBounds(shown);
-  const centerX = bounds.x + bounds.w / 2;
-  const centerY = bounds.y + bounds.h / 2;
+  // When entering from the continent view, preserve the exact section the user
+  // targeted. Centering the whole country's bounds loses that off-center target.
+  const centerX = focusPoint ? focusPoint.x : bounds.x + bounds.w / 2;
+  const centerY = focusPoint ? focusPoint.y : bounds.y + bounds.h / 2;
   const z = initialZoom;
   setCamera(z, -centerX * z, -centerY * z);
 }
@@ -591,7 +593,7 @@ function zoomAt(nextZoom, sx, sy) {
     }
     if (state.viewLevel === "continent") {
       const mass = findLandmassAt(p);
-      if (mass) { focusCountry(mass, .98); return; }
+      if (mass) { focusCountry(mass, .98, p); return; }
       state.zoom = range.max; state.panX = -continentLayoutBounds(state.activeContinent).cx * state.zoom; state.panY = -continentLayoutBounds(state.activeContinent).cy * state.zoom; draw(); return;
     }
     if (state.viewLevel === "country") {
@@ -902,7 +904,12 @@ function canvasPointerUp(e) {
   if (p.mode === "select-rank" && p.rank) { openRanking(p.rank); return; }
   if (p.mode === "select-continent" && p.continent) { state.selectedLandmassId = null; state.selectedRankingId = null; updateLandmassPanel(); focusContinent(p.continent); return; }
   if (p.mode === "select-mass" && p.mass) {
-    if (state.viewLevel === "continent") { focusCountry(p.mass, .98); return; }
+    if (state.viewLevel === "continent") {
+      const rect = viewport.getBoundingClientRect();
+      const target = worldPoint(e.clientX - rect.left, e.clientY - rect.top);
+      focusCountry(p.mass, .98, target);
+      return;
+    }
     selectMass(p.mass);
   } else if (p.mode === "select-empty") { selectMass(null); }
 }
