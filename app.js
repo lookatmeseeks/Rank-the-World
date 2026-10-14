@@ -545,9 +545,11 @@ function focusCountry(mass, initialZoom = .98) {
   state.activeCategory = null;
   state.selectedLandmassId = mass.id;
   const shown = displayMass(mass);
+  const bounds = massBounds(shown);
+  const centerX = bounds.x + bounds.w / 2;
+  const centerY = bounds.y + bounds.h / 2;
   const z = initialZoom;
-  const rect = viewport.getBoundingClientRect();
-  setCamera(z, -shown.x * z, -shown.y * z);
+  setCamera(z, -centerX * z, -centerY * z);
 }
 function categoryAt(mass, p) {
   if (!mass) return null;
