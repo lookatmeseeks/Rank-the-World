@@ -43,11 +43,37 @@ function primaryTag(ranking) { return ranking.tags && ranking.tags.length ? rank
 function makeLandmass(name, autoKey, x, y, manual = false) {
   return { id: "land-" + state.nextLandmassId++, name, autoKey, x, y, color: colorFor(autoKey || name), manual, createdAt: state.nextLandmassId };
 }
+const WORLD_POSITIONS = [
+  [-3100,-650], [-2300,850], [-500,-850], [-250,650], [1050,-650],
+  [2200,-450], [3150,700], [3700,1150], [1450,1050], [650,1450],
+  [-1250,-1250], [-3600,250], [2750,-1250], [500,-1450], [-1800,1450],
+  [1850,350], [-700,1750], [3400,-350], [-2850,-1150], [1000,350],
+  [2600,1400], [-400,200], [-1500,250], [4200,250], [800,1950],
+  [-4000,-550], [2150,-1600], [4000,1500], [-2100,1850], [1600,1850]
+];
+function worldPositionForIndex(index) {
+  if (index < WORLD_POSITIONS.length) {
+    const [x, y] = WORLD_POSITIONS[index];
+    return { x, y };
+  }
+  const extra = index - WORLD_POSITIONS.length;
+  const angle = extra * 2.399963229728653;
+  const radius = 4700 + Math.sqrt(extra + 1) * 560;
+  return {
+    x: Math.cos(angle) * radius + Math.sin(extra * 1.7) * 170,
+    y: Math.sin(angle) * radius * .48 + Math.cos(extra * 1.3) * 160
+  };
+}
 function nextMapPosition() {
-  const index = state.landmasses.length;
-  const cols = 5;
-  const col = index % cols, row = Math.floor(index / cols);
-  return { x: (col - (cols - 1) / 2) * 1900, y: (row - 1.5) * 1450 };
+  return worldPositionForIndex(state.landmasses.length);
+}
+function arrangeAutomaticLandmasses() {
+  const automatic = state.landmasses.filter(m => !m.manual).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  automatic.forEach((mass, index) => {
+    const p = worldPositionForIndex(index);
+    mass.x = p.x;
+    mass.y = p.y;
+  });
 }
 function ensureLandmassForRanking(ranking) {
   if (ranking.landmassId && state.landmasses.some(m => m.id === ranking.landmassId)) return;
@@ -326,7 +352,9 @@ function load() {
       state.rankings = saved.rankings; state.landmasses = saved.landmasses;
       state.nextRankingId = saved.nextRankingId || state.rankings.length + 1;
       state.nextLandmassId = saved.nextLandmassId || state.landmasses.length + 1;
-      rebuildMembership(); return true;
+      rebuildMembership();
+      arrangeAutomaticLandmasses();
+      return true;
     }
   } catch (e) { console.warn("Could not load local map", e); }
   return false;
@@ -457,12 +485,14 @@ function chooseLandmassSearch(m) {
 }
 function resetMap() { setCamera(.16, 0, 0); state.selectedLandmassId = null; state.selectedRankingId = null; updateLandmassPanel(); }
 function canvasPointerDown(e) {
-  if (e.button !== 0) return;
+  if (e.button !== 0 && e.button !== 1) return;
+  if (e.button === 1) e.preventDefault();
   const rect = viewport.getBoundingClientRect(), sx = e.clientX - rect.left, sy = e.clientY - rect.top;
   const p = worldPoint(sx, sy), rank = findRankingAt(p), mass = findLandmassAt(p);
-  state.pointer = { id: e.pointerId, x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, panX: state.panX, panY: state.panY, mass, rank, mode: mass && (e.shiftKey || e.altKey) ? "move-mass" : "pan", massX: mass ? mass.x : 0, massY: mass ? mass.y : 0, moved: false };
-  if (mass && state.zoom < .25) state.pointer.mode = e.shiftKey || e.altKey ? "move-mass" : "select-mass";
-  if (rank && state.zoom >= .58) state.pointer.mode = "select-rank";
+  let mode = e.button === 1 ? "pan" : "select-empty";
+  if (e.button === 0 && mass) mode = e.shiftKey || e.altKey ? "move-mass" : "select-mass";
+  if (e.button === 0 && rank && state.zoom >= .58) mode = "select-rank";
+  state.pointer = { id: e.pointerId, button: e.button, x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, panX: state.panX, panY: state.panY, mass, rank, mode, massX: mass ? mass.x : 0, massY: mass ? mass.y : 0, moved: false };
   viewport.setPointerCapture(e.pointerId);
 }
 function canvasPointerMove(e) {
@@ -483,15 +513,16 @@ function canvasPointerMove(e) {
 function canvasPointerUp(e) {
   const p = state.pointer; if (!p || p.id !== e.pointerId) return;
   state.pointer = null;
-  if (p.mode === "move-mass" && p.mass && p.moved) { save(); updateLandmassPanel(); notify("Landmass repositioned."); return; }
-  if (p.moved) return;
+  if (p.mode === "move-mass" && p.mass && p.moved) { p.mass.manual = true; save(); updateLandmassPanel(); notify("Landmass repositioned."); return; }
+  if (p.mode === "pan" || p.moved) return;
   if (p.mode === "select-rank" && p.rank) { openRanking(p.rank); return; }
-  if (p.mass) {
+  if (p.mode === "select-mass" && p.mass) {
     selectMass(p.mass);
     if (state.zoom < .25) flyToWorld(p.mass.x, p.mass.y, .42);
-  } else { selectMass(null); }
+  } else if (p.mode === "select-empty") { selectMass(null); }
 }
 viewport.addEventListener("pointerdown", canvasPointerDown);
+viewport.addEventListener("auxclick", e => { if (e.button === 1) e.preventDefault(); });
 viewport.addEventListener("pointermove", canvasPointerMove);
 viewport.addEventListener("pointerup", canvasPointerUp);
 viewport.addEventListener("pointercancel", () => { state.pointer = null; });
