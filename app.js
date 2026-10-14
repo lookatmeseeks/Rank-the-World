@@ -66,9 +66,9 @@ function migrateRanking(ranking) {
 function cityName(ranking) { return ranking.city || "General"; }
 function viewZoomRange() {
   if (state.viewLevel === "world") return { min: MIN_ZOOM, max: .24 };
-  if (state.viewLevel === "continent") return { min: continentLayoutFitZoom(state.activeContinent), max: .58 };
-  if (state.viewLevel === "country") return { min: .25, max: .58 };
-  return { min: .58, max: .92 };
+  if (state.viewLevel === "continent") return { min: continentLayoutFitZoom(state.activeContinent), max: .95 };
+  if (state.viewLevel === "country") return { min: .95, max: 1.55 };
+  return { min: 1.55, max: 2.4 };
 }
 function localZoomPercent() {
   const range = viewZoomRange();
@@ -193,8 +193,8 @@ function landmassFootprint(mass) {
   const bounds = massBounds(mass);
   const factor = landmassSizeFactor(mass);
   return {
-    halfW: Math.max(270 * factor, bounds.w * .74) * 1.23 + 100,
-    halfH: Math.max(210 * factor, bounds.h * .78) * 1.23 + 100
+    halfW: Math.max(420 * factor, bounds.w * .74) * 1.23 + 100,
+    halfH: Math.max(300 * factor, bounds.h * .78) * 1.23 + 100
   };
 }
 function overlapsLandmass(a, b) {
@@ -344,7 +344,7 @@ function pathLandmass(mass, bounds, c) {
   const { x, y, w, h } = bounds;
   const cx = x + w / 2, cy = y + h / 2;
   const sizeFactor = landmassSizeFactor(mass);
-  const radiusX = Math.max(270 * sizeFactor, w * .74), radiusY = Math.max(210 * sizeFactor, h * .78);
+  const radiusX = Math.max(420 * sizeFactor, w * .74), radiusY = Math.max(300 * sizeFactor, h * .78);
   const points = [];
   const seed = hash(mass.id);
   for (let i = 0; i < 28; i++) {
@@ -409,11 +409,11 @@ function drawLandmass(mass) {
     return;
   }
   c.textAlign = "center"; c.textBaseline = "middle";
-  c.fillStyle = mass.color; c.font = "800 20px system-ui";
-  c.fillText(mass.name, cx, bounds.y - 34);
-  c.fillStyle = "#7f879a"; c.font = "11px system-ui";
-  c.fillText(ranks.length + (ranks.length === 1 ? " ranking" : " rankings"), cx, bounds.y - 16);
-  if ((state.viewLevel === "continent" || state.viewLevel === "country") && state.zoom < .58) {
+  c.fillStyle = mass.color; c.font = "800 " + (26 / state.zoom) + "px system-ui";
+  c.fillText(mass.name, cx, bounds.y - 48 / state.zoom);
+  c.fillStyle = "#aab1c2"; c.font = (16 / state.zoom) + "px system-ui";
+  c.fillText(ranks.length + (ranks.length === 1 ? " ranking" : " rankings"), cx, bounds.y - 23 / state.zoom);
+  if (state.viewLevel === "continent" || (state.viewLevel === "country" && state.zoom < 1.55)) {
     const cities = new Map();
     ranks.forEach(it => {
       const city = cityName(it.ranking);
@@ -424,14 +424,14 @@ function drawLandmass(mass) {
     entries.forEach(([name, items]) => {
       const x = cx + items.reduce((sum, item) => sum + item.x, 0) / items.length;
       const y = cy + items.reduce((sum, item) => sum + item.y, 0) / items.length;
-      const w = 148, h = 82;
+      const w = 520, h = 270;
       roundRect(c, x-w/2, y-h/2, w, h, 10);
       c.fillStyle = "#191c26"; c.fill();
       c.strokeStyle = mass.color + "cc"; c.lineWidth = 1.4 / state.zoom; c.stroke();
       c.fillStyle = "#f0f1f7"; c.textAlign = "center"; c.textBaseline = "middle";
-      c.font = "700 14px system-ui"; c.fillText(name, x, y - 10, w - 14);
-      c.fillStyle = "#a4aabc"; c.font = "11px system-ui";
-      c.fillText(items.length + (items.length === 1 ? " list" : " lists"), x, y + 13);
+      c.font = "800 " + (27 / state.zoom) + "px system-ui"; c.fillText(name, x, y - 25 / state.zoom, w - 34);
+      c.fillStyle = "#b4bbcb"; c.font = (19 / state.zoom) + "px system-ui";
+      c.fillText(items.length + (items.length === 1 ? " list" : " lists"), x, y + 28 / state.zoom);
     });
     return;
   }
@@ -538,7 +538,7 @@ function setCamera(zoom, panX, panY) {
   state.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
   state.panX = panX; state.panY = panY; draw();
 }
-function focusCountry(mass, initialZoom = .30) {
+function focusCountry(mass, initialZoom = .98) {
   if (!mass) return;
   state.viewLevel = "country";
   state.activeCountryId = mass.id;
@@ -560,11 +560,11 @@ function categoryAt(mass, p) {
   for (const [name, itemsInCategory] of groups) {
     const x = shown.x + itemsInCategory.reduce((sum, item) => sum + item.x, 0) / itemsInCategory.length;
     const y = shown.y + itemsInCategory.reduce((sum, item) => sum + item.y, 0) / itemsInCategory.length;
-    if (Math.abs(p.x - x) <= 110 && Math.abs(p.y - y) <= 70) return name;
+    if (Math.abs(p.x - x) <= 270 && Math.abs(p.y - y) <= 145) return name;
   }
   return null;
 }
-function focusCategory(mass, category, initialZoom = .60) {
+function focusCategory(mass, category, initialZoom = 1.6) {
   if (!mass || !category) return false;
   state.viewLevel = "list";
   state.activeCountryId = mass.id;
@@ -589,13 +589,13 @@ function zoomAt(nextZoom, sx, sy) {
     }
     if (state.viewLevel === "continent") {
       const mass = findLandmassAt(p);
-      if (mass) { focusCountry(mass, .30); return; }
+      if (mass) { focusCountry(mass, .98); return; }
       state.zoom = range.max; state.panX = -continentLayoutBounds(state.activeContinent).cx * state.zoom; state.panY = -continentLayoutBounds(state.activeContinent).cy * state.zoom; draw(); return;
     }
     if (state.viewLevel === "country") {
       const mass = state.landmasses.find(m => m.id === state.activeCountryId);
       const category = categoryAt(mass, p);
-      if (category && focusCategory(mass, category, .60)) return;
+      if (category && focusCategory(mass, category, 1.6)) return;
       state.zoom = range.max; state.panX = -displayMass(mass).x * state.zoom; state.panY = -displayMass(mass).y * state.zoom; draw(); return;
     }
     state.zoom = range.max;
@@ -603,11 +603,11 @@ function zoomAt(nextZoom, sx, sy) {
     if (state.viewLevel === "list") {
       state.viewLevel = "country"; state.activeCategory = null;
       const mass = state.landmasses.find(m => m.id === state.activeCountryId);
-      if (mass) { focusCountry(mass, .58); return; }
+      if (mass) { focusCountry(mass, .95); return; }
     } else if (state.viewLevel === "country") {
       state.viewLevel = "continent"; state.activeCountryId = null; state.activeCategory = null;
       const bounds = continentLayoutBounds(state.activeContinent);
-      setCamera(.58, -bounds.cx * .58, -bounds.cy * .58); return;
+      setCamera(.95, -bounds.cx * .95, -bounds.cy * .95); return;
     } else if (state.viewLevel === "continent") {
       fitWorld(); return;
     }
@@ -668,7 +668,7 @@ function findRankingAt(p) {
     const items = groupsForMass(m);
     for (const item of items) {
       const r = item.ranking, x = m.x + item.x, y = m.y + item.y;
-      const radius = state.zoom >= .58 ? 110 : state.zoom >= .25 ? 45 : 0;
+      const radius = state.zoom >= 1.55 ? 110 : state.zoom >= .95 ? 45 : 0;
       if (radius && Math.abs(p.x - x) < radius && Math.abs(p.y - y) < radius) return r;
     }
   }
@@ -834,12 +834,12 @@ function chooseSearchResult(r) {
   if (group) focusContinent(group);
   const mass = state.landmasses.find(m => m.id === r.landmassId);
   if (mass) {
-    focusCountry(mass, .30);
-    focusCategory(mass, cityName(r), .68);
+    focusCountry(mass, .98);
+    focusCategory(mass, cityName(r), 1.65);
     state.selectedLandmassId = r.landmassId;
     state.selectedRankingId = r.id;
     updateLandmassPanel();
-    const p = rankWorldPosition(r), rect = viewport.getBoundingClientRect(), zoom = .78;
+    const p = rankWorldPosition(r), rect = viewport.getBoundingClientRect(), zoom = 1.7;
     animateCamera([{zoom, x: -p.x * zoom, y: -p.y * zoom, duration: 520}]);
   }
   draw();
@@ -892,7 +892,7 @@ function canvasPointerUp(e) {
   if (p.mode === "select-rank" && p.rank) { openRanking(p.rank); return; }
   if (p.mode === "select-continent" && p.continent) { state.selectedLandmassId = null; state.selectedRankingId = null; updateLandmassPanel(); focusContinent(p.continent); return; }
   if (p.mode === "select-mass" && p.mass) {
-    if (state.viewLevel === "continent") { focusCountry(p.mass, .30); return; }
+    if (state.viewLevel === "continent") { focusCountry(p.mass, .98); return; }
     selectMass(p.mass);
   } else if (p.mode === "select-empty") { selectMass(null); }
 }
