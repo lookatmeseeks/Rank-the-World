@@ -659,9 +659,15 @@ function findLandmassAt(p) {
   for (let i = state.landmasses.length - 1; i >= 0; i--) {
     const raw=state.landmasses[i];
     if(state.activeContinent&&continentForMass(raw)!==state.activeContinent)continue;
-    const m=displayMass(raw), b=massBounds(m);
-    const rx = b.w * .78 + 30, ry = b.h * .8 + 30;
-    if (Math.pow((p.x - (b.x + b.w / 2)) / rx, 2) + Math.pow((p.y - (b.y + b.h / 2)) / ry, 2) <= 1) return m;
+    const m=displayMass(raw), b=massBounds(m), footprint=landmassFootprint(m);
+    // The visible outline can extend well beyond the ranking-content bounds.
+    // Use the actual drawn footprint for hit-testing so zooming over an edge
+    // selects that country instead of falling back to the continent center.
+    const rx = Math.max(420 * landmassSizeFactor(m), b.w * .74) * 1.2 + 8;
+    const ry = Math.max(300 * landmassSizeFactor(m), b.h * .78) * 1.2 + 8;
+    const dx = (p.x - (b.x + b.w / 2)) / Math.max(rx, footprint.halfW * .88);
+    const dy = (p.y - (b.y + b.h / 2)) / Math.max(ry, footprint.halfH * .88);
+    if (dx * dx + dy * dy <= 1) return m;
   }
   return null;
 }
