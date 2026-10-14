@@ -67,12 +67,62 @@ function worldPositionForIndex(index) {
 function nextMapPosition() {
   return worldPositionForIndex(state.landmasses.length);
 }
+function rankingCount(mass) {
+  return state.rankings.reduce((count, ranking) => count + (ranking.landmassId === mass.id ? 1 : 0), 0);
+}
+function landmassSizeFactor(mass) {
+  const counts = state.landmasses.map(rankingCount);
+  const min = counts.length ? Math.min(...counts) : 1;
+  const max = counts.length ? Math.max(...counts) : 1;
+  if (max <= min) return 1;
+  const count = rankingCount(mass);
+  const normalized = (count - min) / (max - min);
+  return .58 + Math.pow(normalized, .78) * .92;
+}
+function landmassFootprint(mass) {
+  const bounds = massBounds(mass);
+  const factor = landmassSizeFactor(mass);
+  return {
+    halfW: Math.max(240 * factor, bounds.w * .66) * 1.23 + 100,
+    halfH: Math.max(180 * factor, bounds.h * .72) * 1.23 + 100
+  };
+}
+function overlapsLandmass(a, b) {
+  const aa = landmassFootprint(a), bb = landmassFootprint(b);
+  return Math.abs(a.x - b.x) < aa.halfW + bb.halfW &&
+    Math.abs(a.y - b.y) < aa.halfH + bb.halfH;
+}
+function positionWithoutOverlap(mass, desired, placed) {
+  mass.x = desired.x; mass.y = desired.y;
+  if (!placed.some(other => overlapsLandmass(mass, other))) return;
+  const footprint = landmassFootprint(mass);
+  const step = Math.max(footprint.halfW, footprint.halfH, 520) * 1.12;
+  for (let ring = 1; ring <= 120; ring++) {
+    const radius = step * ring;
+    const samples = Math.max(16, Math.ceil(2 * Math.PI * ring));
+    for (let i = 0; i < samples; i++) {
+      const angle = i * Math.PI * 2 / samples + ring * .37;
+      mass.x = desired.x + Math.cos(angle) * radius;
+      mass.y = desired.y + Math.sin(angle) * radius * .72;
+      if (!placed.some(other => overlapsLandmass(mass, other))) return;
+    }
+  }
+  mass.x = desired.x + placed.length * step;
+  mass.y = desired.y;
+}
 function arrangeAutomaticLandmasses() {
-  const automatic = state.landmasses.filter(m => !m.manual).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-  automatic.forEach((mass, index) => {
-    const p = worldPositionForIndex(index);
-    mass.x = p.x;
-    mass.y = p.y;
+  const ordered = [
+    ...state.landmasses.filter(m => m.manual).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)),
+    ...state.landmasses.filter(m => !m.manual).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+  ];
+  const automatic = ordered.filter(m => !m.manual);
+  const placed = [];
+  ordered.forEach(mass => {
+    const desired = mass.manual
+      ? { x: mass.x, y: mass.y }
+      : worldPositionForIndex(automatic.indexOf(mass));
+    positionWithoutOverlap(mass, desired, placed);
+    placed.push(mass);
   });
 }
 function ensureLandmassForRanking(ranking) {
@@ -143,7 +193,8 @@ function roundRect(c, x, y, w, h, r) {
 function pathLandmass(mass, bounds, c) {
   const { x, y, w, h } = bounds;
   const cx = x + w / 2, cy = y + h / 2;
-  const radiusX = Math.max(240, w * .66), radiusY = Math.max(180, h * .72);
+  const sizeFactor = landmassSizeFactor(mass);
+  const radiusX = Math.max(240 * sizeFactor, w * .66), radiusY = Math.max(180 * sizeFactor, h * .72);
   const points = [];
   const seed = hash(mass.id);
   for (let i = 0; i < 28; i++) {
@@ -359,7 +410,7 @@ function load() {
   } catch (e) { console.warn("Could not load local map", e); }
   return false;
 }
-function changed() { rebuildMembership(); save(); draw(); updateLandmassPanel(); }
+function changed() { rebuildMembership(); arrangeAutomaticLandmasses(); save(); draw(); updateLandmassPanel(); }
 function openRanking(ranking) {
   state.selectedRankingId = ranking.id;
   $("#detail-title").textContent = ranking.title;
@@ -513,7 +564,11 @@ function canvasPointerMove(e) {
 function canvasPointerUp(e) {
   const p = state.pointer; if (!p || p.id !== e.pointerId) return;
   state.pointer = null;
-  if (p.mode === "move-mass" && p.mass && p.moved) { p.mass.manual = true; save(); updateLandmassPanel(); notify("Landmass repositioned."); return; }
+  if (p.mode === "move-mass" && p.mass && p.moved) {
+    p.mass.manual = true;
+    arrangeAutomaticLandmasses();
+    save(); draw(); updateLandmassPanel(); notify("Landmass repositioned without overlap."); return;
+  }
   if (p.mode === "pan" || p.moved) return;
   if (p.mode === "select-rank" && p.rank) { openRanking(p.rank); return; }
   if (p.mode === "select-mass" && p.mass) {
