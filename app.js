@@ -20,7 +20,7 @@ const thumbnailCache = new Map();
 const state = {
   rankings: [], landmasses: [], nextRankingId: 1, nextLandmassId: 1,
   zoom: .16, panX: 0, panY: 0, selectedLandmassId: null, selectedRankingId: null,
-  pointer: null, cameraFrame: null, searchMatches: [], searchIndex: -1
+  pointer: null, cameraFrame: null, searchMatches: [], searchIndex: -1, activeContinent: null
 };
 const MIN_ZOOM = .055, MAX_ZOOM = 2.4;
 const STORAGE_KEY = "rank-the-world-map-v2";
@@ -74,13 +74,32 @@ function continentGroups() {
     if (!groups.has(name)) groups.set(name, []);
     groups.get(name).push(m);
   });
-  return [...groups].map(([name, masses]) => ({
-    name, masses,
-    x: masses.reduce((n,m) => n + m.x, 0) / masses.length,
-    y: masses.reduce((n,m) => n + m.y, 0) / masses.length,
-    count: state.rankings.filter(r => (r.continent || inferContinent(r)) === name).length,
-    color: colorFor(name)
+  const positions = [[-5400,-2700],[-1800,-2700],[1800,-2700],[5400,-2700],[-5400,0],[-1800,0],[1800,0],[5400,0],[-3600,2700],[0,2700],[3600,2700],[7200,2700]];
+  return [...groups].sort(([a],[b]) => {
+    const ai=CONTINENTS.findIndex(c=>key(c)===key(a)), bi=CONTINENTS.findIndex(c=>key(c)===key(b));
+    return (ai<0?999:ai)-(bi<0?999:bi)||a.localeCompare(b);
+  }).map(([name,masses],index)=>({
+    name,masses,x:positions[index]?.[0]??(index%4-1.5)*3600,
+    y:positions[index]?.[1]??(Math.floor(index/4)-1)*2700,
+    count:state.rankings.filter(r=>(r.continent||inferContinent(r))===name).length,color:colorFor(name)
   }));
+}
+function activeCountryLayout(groupName) {
+  const masses=state.landmasses.filter(m=>continentForMass(m)===groupName).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+  if(!masses.length)return new Map();
+  const measured=masses.map(m=>({m,b:massBounds(m)})), cols=Math.max(1,Math.ceil(Math.sqrt(masses.length)),), rows=Math.ceil(masses.length/cols);
+  const colWidths=Array.from({length:cols},(_,col)=>Math.max(520,...measured.filter((_,i)=>i%cols===col).map(v=>v.b.w)));
+  const rowHeights=Array.from({length:rows},(_,row)=>Math.max(400,...measured.filter((_,i)=>Math.floor(i/cols)===row).map(v=>v.b.h)));
+  const colX=[],rowY=[]; let x=0,y=0;
+  colWidths.forEach((w,i)=>{colX[i]=x+w/2;x+=w+120;});
+  rowHeights.forEach((h,i)=>{rowY[i]=y+h/2;y+=h+120;});
+  const totalW=x-120,totalH=y-120;
+  return new Map(measured.map((v,i)=>[v.m.id,{x:colX[i%cols]-totalW/2,y:rowY[Math.floor(i/cols)]-totalH/2,w:v.b.w,h:v.b.h}]));
+}
+function displayMass(mass) {
+  if(!state.activeContinent||continentForMass(mass)!==state.activeContinent)return mass;
+  const pos=activeCountryLayout(state.activeContinent).get(mass.id);
+  return pos?{...mass,x:pos.x,y:pos.y}:mass;
 }
 function makeLandmass(name, autoKey, x, y, manual = false) {
   return { id: "land-" + state.nextLandmassId++, name, autoKey, x, y, color: colorFor(autoKey || name), manual, createdAt: state.nextLandmassId };
@@ -243,8 +262,9 @@ function massBounds(mass) {
   return { x: mass.x + minX, y: mass.y + minY, w: maxX - minX, h: maxY - minY, items };
 }
 function rankWorldPosition(r) {
-  const mass = state.landmasses.find(m => m.id === r.landmassId);
-  if (!mass) return { x: 0, y: 0 };
+  const rawMass = state.landmasses.find(m => m.id === r.landmassId);
+  if (!rawMass) return { x: 0, y: 0 };
+  const mass = displayMass(rawMass);
   const items = groupsForMass(mass);
   const item = items.find(i => i.ranking.id === r.id);
   return item ? { x: mass.x + item.x, y: mass.y + item.y } : { x: mass.x, y: mass.y };
@@ -325,7 +345,7 @@ function drawLandmass(mass) {
   c.lineWidth = selected ? 2.2 / state.zoom : 1.3 / state.zoom;
   c.strokeStyle = selected ? "#c9bcff" : mass.color + "9a"; c.stroke();
   const ranks = bounds.items, cx = mass.x, cy = mass.y;
-  if (state.zoom < .25) {
+  if (state.zoom < .25 && !state.activeContinent) {
     const unit = 1 / state.zoom;
     c.fillStyle = "#151822"; c.beginPath(); c.ellipse(cx, cy, 34 * unit, 26 * unit, 0, 0, Math.PI * 2); c.fill();
     c.strokeStyle = mass.color; c.lineWidth = 1.5 / state.zoom; c.stroke();
@@ -415,7 +435,7 @@ function draw() {
   ctx.translate(rect.width / 2 + state.panX, rect.height / 2 + state.panY);
   ctx.scale(state.zoom, state.zoom);
   drawGrid();
-  if (state.zoom < .25) {
+  if (state.zoom < .25 && !state.activeContinent) {
     const tl = worldPoint(0, 0), br = worldPoint(rect.width, rect.height);
     continentGroups().forEach(group => {
       const unit = 1 / state.zoom;
@@ -441,7 +461,8 @@ function draw() {
     $("#world-map").setAttribute("aria-label", state.rankings.length + " rankings across " + continentGroups().length + " continents");
     return;
   }
-  const visible = state.landmasses.map(m => ({ mass: m, bounds: massBounds(m) }))
+  const renderMasses=state.activeContinent?state.landmasses.filter(m=>continentForMass(m)===state.activeContinent).map(displayMass):state.landmasses;
+  const visible = renderMasses.map(m => ({ mass: m, bounds: massBounds(m) }))
     .filter(({ bounds }) => {
       const tl = worldPoint(0, 0), br = worldPoint(rect.width, rect.height);
       return bounds.x + bounds.w > tl.x - 250 && bounds.x < br.x + 250 && bounds.y + bounds.h > tl.y - 250 && bounds.y < br.y + 250;
@@ -498,14 +519,18 @@ function findContinentAt(p) {
 }
 function findLandmassAt(p) {
   for (let i = state.landmasses.length - 1; i >= 0; i--) {
-    const m = state.landmasses[i], b = massBounds(m);
+    const raw=state.landmasses[i];
+    if(state.activeContinent&&continentForMass(raw)!==state.activeContinent)continue;
+    const m=displayMass(raw), b=massBounds(m);
     const rx = b.w * .78 + 30, ry = b.h * .8 + 30;
     if (Math.pow((p.x - (b.x + b.w / 2)) / rx, 2) + Math.pow((p.y - (b.y + b.h / 2)) / ry, 2) <= 1) return m;
   }
   return null;
 }
 function findRankingAt(p) {
-  for (const m of state.landmasses) {
+  for (const raw of state.landmasses) {
+    if(state.activeContinent&&continentForMass(raw)!==state.activeContinent)continue;
+    const m=displayMass(raw);
     const items = groupsForMass(m);
     for (const item of items) {
       const r = item.ranking, x = m.x + item.x, y = m.y + item.y;
@@ -629,6 +654,7 @@ function addLargeTestSet() {
   changed(); fitWorld(); notify(added ? "Added " + added + " test rankings. The map now contains " + state.rankings.length + "." : "The large test set is already on the map.");
 }
 function fitWorld() {
+  state.activeContinent=null;
   const groups = continentGroups();
   if (!groups.length) { setCamera(.16, 0, 0); return; }
   // Fit the continent centres, not every country and list in the underlying
@@ -641,19 +667,15 @@ function fitWorld() {
   setCamera(z, -(minX + maxX) / 2 * z, -(minY + maxY) / 2 * z);
 }
 function focusContinent(group) {
-  const masses = group.masses;
-  if (!masses.length) return;
-  const bounds = masses.map(m => ({ m, b: massBounds(m) }));
-  const minX = Math.min(...bounds.map(v => v.b.x)) - 120;
-  const maxX = Math.max(...bounds.map(v => v.b.x + v.b.w)) + 120;
-  const minY = Math.min(...bounds.map(v => v.b.y)) - 110;
-  const maxY = Math.max(...bounds.map(v => v.b.y + v.b.h)) + 110;
-  const rect = viewport.getBoundingClientRect();
-  // Stay above the continent-LOD threshold so the selected continent opens
-  // directly to its complete country layout.
-  const z = Math.max(.255, Math.min(.8, Math.min(rect.width / Math.max(1, maxX - minX), rect.height / Math.max(1, maxY - minY)) * .88));
-  const x = (minX + maxX) / 2, y = (minY + maxY) / 2;
-  animateCamera([{ zoom: Math.min(state.zoom, .22), x: state.panX, y: state.panY, duration: 240 }, { zoom: z, x: -x * z, y: -y * z, duration: 650 }]);
+  if(!group.masses.length)return;
+  state.activeContinent=group.name;
+  const positions=activeCountryLayout(group.name), values=[...positions.values()];
+  const minX=Math.min(...values.map(v=>v.x-v.w/2))-100, maxX=Math.max(...values.map(v=>v.x+v.w/2))+100;
+  const minY=Math.min(...values.map(v=>v.y-v.h/2))-100, maxY=Math.max(...values.map(v=>v.y+v.h/2))+100;
+  const rect=viewport.getBoundingClientRect();
+  const z=Math.max(MIN_ZOOM,Math.min(.8,Math.min(rect.width/Math.max(1,maxX-minX),rect.height/Math.max(1,maxY-minY))*.88));
+  const x=(minX+maxX)/2,y=(minY+maxY)/2;
+  animateCamera([{zoom:Math.min(state.zoom,.22),x:state.panX,y:state.panY,duration:240},{zoom:z,x:-x*z,y:-y*z,duration:650}]);
 }
 function showSearchResults(query) {
   const q = key(query);
@@ -672,6 +694,7 @@ function showSearchResults(query) {
 }
 function chooseSearchResult(r) {
   suggestions.hidden = true; searchInput.value = r.title;
+  state.activeContinent=r.continent||inferContinent(r);
   const p = rankWorldPosition(r), sameLandmass = state.selectedLandmassId === r.landmassId;
   state.selectedLandmassId = r.landmassId; state.selectedRankingId = r.id;
   updateLandmassPanel();
@@ -684,22 +707,17 @@ function chooseSearchResult(r) {
   draw();
 }
 function chooseLandmassSearch(m) {
-  suggestions.hidden = true; searchInput.value = m.name;
-  const sameLandmass = state.selectedLandmassId === m.id;
-  state.selectedLandmassId = m.id; updateLandmassPanel();
-  if (sameLandmass && state.zoom >= .25) {
-    const zoom = .42;
-    animateCamera([{ zoom, x: -m.x * zoom, y: -m.y * zoom, duration: 620 }]);
-  } else {
-    flyToWorld(m.x, m.y, .42);
-  }
+  suggestions.hidden=true; searchInput.value=m.name; state.activeContinent=continentForMass(m);
+  const same=state.selectedLandmassId===m.id; state.selectedLandmassId=m.id; updateLandmassPanel();
+  const shown=displayMass(m), zoom=.42;
+  animateCamera([{zoom:Math.min(state.zoom,.22),x:state.panX,y:state.panY,duration:240},{zoom,x:-shown.x*zoom,y:-shown.y*zoom,duration:620}]);
 }
-function resetMap() { setCamera(.16, 0, 0); state.selectedLandmassId = null; state.selectedRankingId = null; updateLandmassPanel(); }
+function resetMap() { state.activeContinent=null; setCamera(.16, 0, 0); state.selectedLandmassId = null; state.selectedRankingId = null; updateLandmassPanel(); }
 function canvasPointerDown(e) {
   if (e.button !== 0 && e.button !== 1) return;
   if (e.button === 1) e.preventDefault();
   const rect = viewport.getBoundingClientRect(), sx = e.clientX - rect.left, sy = e.clientY - rect.top;
-  const p = worldPoint(sx, sy), continent = state.zoom < .25 ? findContinentAt(p) : null, rank = findRankingAt(p), mass = findLandmassAt(p);
+  const p = worldPoint(sx, sy), continent = state.zoom < .25 && !state.activeContinent ? findContinentAt(p) : null, rank = findRankingAt(p), mass = findLandmassAt(p);
   let mode = e.button === 1 ? "pan" : "select-empty";
   if (e.button === 0 && continent) mode = "select-continent";
   else if (e.button === 0 && mass) mode = e.shiftKey || e.altKey ? "move-mass" : "select-mass";
