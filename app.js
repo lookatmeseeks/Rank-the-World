@@ -40,7 +40,12 @@ function hash(text) {
 }
 function colorFor(id) { return COLORS[hash(id) % COLORS.length]; }
 const CONTINENTS = ["Anime","Games","Movies","Manga","Music","Books","Fantasy","Sci-Fi","Comics","Animation","Tabletop RPG","Other"];
-function primaryTag(ranking) { return ranking.country || (ranking.tags && ranking.tags.length ? ranking.tags[0] : "Unsorted"); }
+function isBroadSubject(value) { return CONTINENTS.some(c => key(c) === key(value)); }
+function inferredCountry(tags) {
+  const first = (tags || [])[0] || "Unsorted";
+  return isBroadSubject(first) ? "Cross-series" : first;
+}
+function primaryTag(ranking) { return ranking.country || inferredCountry(ranking.tags); }
 function inferContinent(ranking) {
   const tags = (ranking.tags || []).map(key);
   const known = CONTINENTS.find(c => tags.includes(key(c)));
@@ -52,7 +57,7 @@ function migrateRanking(ranking) {
   ranking.tags = Array.isArray(ranking.tags) ? ranking.tags : [];
   const oldMass = state.landmasses.find(m => m.id === ranking.landmassId);
   ranking.continent = ranking.continent || inferContinent(ranking);
-  ranking.country = ranking.country || oldMass?.name || ranking.tags[0] || "Unsorted";
+  ranking.country = ranking.country || (oldMass?.manual ? oldMass.name : inferredCountry(ranking.tags));
   ranking.city = ranking.city || (ranking.tags.length >= 3 ? ranking.tags[2] : "General");
   ranking.creator = ranking.creator || "Guest";
   return ranking;
@@ -515,7 +520,7 @@ function openRanking(ranking) {
 function addRanking(title, description, tags, thumbnailUrl = "", geography = {}) {
   const r = { id: String(state.nextRankingId++), title, description, tags, thumbnailUrl,
     continent: geography.continent || inferContinent({ tags }),
-    country: geography.country || tags[0] || "Unsorted",
+    country: geography.country || inferredCountry(tags),
     city: geography.city || (tags.length >= 3 ? tags[2] : "General"),
     creator: geography.creator || "Guest", landmassId: null };
   state.rankings.push(r); ensureLandmassForRanking(r);
@@ -552,9 +557,9 @@ function startTestSet() {
     ["D&D Monsters","Monsters and creatures",["Dungeons & Dragons","Tabletop RPG","Fantasy"]]
   ];
   let added = 0;
-  samples.forEach(([title, description, tags]) => {
+  samples.forEach(([title, description, tags], index) => {
     if (state.rankings.some(r => key(r.title) === key(title))) return;
-    addRanking(title, description, tags); added++;
+    addRanking(title, description, tags, "", { creator: ["Tobias", "Alex", "Sam"][index % 3] }); added++;
   });
   if (!added) { notify("The starter test set is already on the map."); return; }
   changed(); fitWorld(); notify("Added " + added + " sample rankings across thematic landmasses.");
@@ -575,7 +580,7 @@ function addLargeTestSet() {
     const kind = kinds[Math.floor(i / franchises.length) % kinds.length];
     const title = world + " — " + kind + " " + (Math.floor(i / (franchises.length * kinds.length)) ? Math.floor(i / (franchises.length * kinds.length)) + 1 : "");
     if (state.rankings.some(r => key(r.title) === key(title))) continue;
-    addRanking(title, "Sample data for zoom, search, and map performance testing.", [world, broad, kind]); added++;
+    addRanking(title, "Sample data for zoom, search, and map performance testing.", [world, broad, kind], "", { creator: ["Tobias", "Alex", "Sam", "Morgan"][i % 4] }); added++;
   }
   changed(); fitWorld(); notify(added ? "Added " + added + " test rankings. The map now contains " + state.rankings.length + "." : "The large test set is already on the map.");
 }
