@@ -353,7 +353,7 @@ function drawLandmass(mass) {
   c.lineWidth = selected ? 2.2 / state.zoom : 1.3 / state.zoom;
   c.strokeStyle = selected ? "#c9bcff" : mass.color + "9a"; c.stroke();
   const ranks = bounds.items, cx = mass.x, cy = mass.y;
-  if (state.zoom < .25 && !state.activeContinent) {
+  if (state.zoom < .25) {
     const unit = 1 / state.zoom;
     c.fillStyle = "#151822"; c.beginPath(); c.ellipse(cx, cy, 34 * unit, 26 * unit, 0, 0, Math.PI * 2); c.fill();
     c.strokeStyle = mass.color; c.lineWidth = 1.5 / state.zoom; c.stroke();
