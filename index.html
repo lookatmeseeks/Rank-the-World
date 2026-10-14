@@ -62,7 +62,8 @@
     <label for="ranking-title">Ranking name</label><input id="ranking-title" name="title" maxlength="100" placeholder="e.g. Best anime openings" required>
     <label for="ranking-description">Description <span class="optional">(optional)</span></label><textarea id="ranking-description" name="description" rows="2" maxlength="300" placeholder="What is this ranking about?"></textarea>
     <label for="ranking-tags">Tags <span class="optional">· first tag is the main topic</span></label><input id="ranking-tags" name="tags" maxlength="200" placeholder="e.g. Naruto, Anime, Characters">
-    <p class="field-hint">The first tag determines the default landmass. You can move rankings between landmasses by editing a ranking, or merge and split landmasses from the map.</p>
+    <label for="ranking-thumbnail">Thumbnail image URL <span class="optional">· optional</span></label><input id="ranking-thumbnail" name="thumbnail" type="url" placeholder="https://…">
+    <p class="field-hint">The thumbnail is used at world and regional zoom levels. If left empty, the map uses a generated placeholder. The first tag determines the default landmass.</p>
     <div class="modal-note">This prototype saves its map in this browser using local storage. It is not yet a shared database.</div>
     <div class="ranking-landmass-field" id="ranking-landmass-field" hidden><label for="ranking-landmass">Landmass assignment</label><select id="ranking-landmass"></select></div>
     <div class="modal-actions"><button class="secondary-button" type="button" id="cancel-modal">Cancel</button><button class="primary-button" type="submit">Create ranking</button></div>
