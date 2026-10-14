@@ -159,9 +159,14 @@ function countryWorldPosition(mass, automatic) {
   const countries = automatic.filter(m => continentForMass(m) === continent).sort((a,b) => (a.createdAt || 0) - (b.createdAt || 0));
   const index = Math.max(0, countries.indexOf(mass));
   const cols = Math.max(1, Math.ceil(Math.sqrt(countries.length)));
+  const rows = Math.max(1, Math.ceil(countries.length / cols));
+  const continentRows = Math.max(1, Math.ceil(continents.length / 3));
   return {
-    x: (ci % 3 - 1) * 5200 + (index % cols - (Math.min(cols, countries.length) - 1) / 2) * 1450,
-    y: (Math.floor(ci / 3) - .5) * 4300 + Math.floor(index / cols) * 1450
+    // Countries form a compact cluster inside each continent. The wider gap
+    // between continent centres keeps neighbouring clusters out of the way
+    // when a continent is opened, while still fitting the world overview.
+    x: (ci % 3 - 1) * 2200 + (index % cols - (Math.min(cols, countries.length) - 1) / 2) * 620,
+    y: (Math.floor(ci / 3) - (continentRows - 1) / 2) * 1700 + (Math.floor(index / cols) - (rows - 1) / 2) * 620
   };
 }
 function arrangeAutomaticLandmasses() {
@@ -624,13 +629,31 @@ function addLargeTestSet() {
   changed(); fitWorld(); notify(added ? "Added " + added + " test rankings. The map now contains " + state.rankings.length + "." : "The large test set is already on the map.");
 }
 function fitWorld() {
-  if (!state.landmasses.length) { setCamera(.16, 0, 0); return; }
-  const xs = state.landmasses.map(m => m.x), ys = state.landmasses.map(m => m.y);
-  const minX = Math.min(...xs) - 650, maxX = Math.max(...xs) + 650;
-  const minY = Math.min(...ys) - 500, maxY = Math.max(...ys) + 500;
+  const groups = continentGroups();
+  if (!groups.length) { setCamera(.16, 0, 0); return; }
+  // Fit the continent centres, not every country and list in the underlying
+  // world coordinates. This keeps the overview readable as data grows.
+  const xs = groups.map(g => g.x), ys = groups.map(g => g.y);
+  const minX = Math.min(...xs) - 420, maxX = Math.max(...xs) + 420;
+  const minY = Math.min(...ys) - 340, maxY = Math.max(...ys) + 340;
   const rect = viewport.getBoundingClientRect();
-  const z = Math.max(MIN_ZOOM, Math.min(.28, Math.min(rect.width / Math.max(1, maxX - minX), rect.height / Math.max(1, maxY - minY)) * .88));
+  const z = Math.max(MIN_ZOOM, Math.min(.24, Math.min(rect.width / Math.max(1, maxX - minX), rect.height / Math.max(1, maxY - minY)) * .9));
   setCamera(z, -(minX + maxX) / 2 * z, -(minY + maxY) / 2 * z);
+}
+function focusContinent(group) {
+  const masses = group.masses;
+  if (!masses.length) return;
+  const bounds = masses.map(m => ({ m, b: massBounds(m) }));
+  const minX = Math.min(...bounds.map(v => v.m.x + v.b.x)) - 120;
+  const maxX = Math.max(...bounds.map(v => v.m.x + v.b.x + v.b.w)) + 120;
+  const minY = Math.min(...bounds.map(v => v.m.y + v.b.y)) - 110;
+  const maxY = Math.max(...bounds.map(v => v.m.y + v.b.y + v.b.h)) + 110;
+  const rect = viewport.getBoundingClientRect();
+  // Stay above the continent-LOD threshold so the selected continent opens
+  // directly to its complete country layout.
+  const z = Math.max(.255, Math.min(.8, Math.min(rect.width / Math.max(1, maxX - minX), rect.height / Math.max(1, maxY - minY)) * .88));
+  const x = (minX + maxX) / 2, y = (minY + maxY) / 2;
+  animateCamera([{ zoom: Math.min(state.zoom, .22), x: state.panX, y: state.panY, duration: 240 }, { zoom: z, x: -x * z, y: -y * z, duration: 650 }]);
 }
 function showSearchResults(query) {
   const q = key(query);
@@ -709,7 +732,7 @@ function canvasPointerUp(e) {
   }
   if (p.mode === "pan" || p.moved) return;
   if (p.mode === "select-rank" && p.rank) { openRanking(p.rank); return; }
-  if (p.mode === "select-continent" && p.continent) { state.selectedLandmassId = null; state.selectedRankingId = null; updateLandmassPanel(); flyToWorld(p.continent.x, p.continent.y, .42); return; }
+  if (p.mode === "select-continent" && p.continent) { state.selectedLandmassId = null; state.selectedRankingId = null; updateLandmassPanel(); focusContinent(p.continent); return; }
   if (p.mode === "select-mass" && p.mass) {
     selectMass(p.mass);
     if (state.zoom < .25) flyToWorld(p.mass.x, p.mass.y, .42);
