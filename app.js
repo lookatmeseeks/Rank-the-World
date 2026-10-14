@@ -1,496 +1,579 @@
 (() => {
 "use strict";
-const $ = (selector) => document.querySelector(selector);
-const viewport = $("#canvas-viewport"), world = $("#canvas-world"), layer = $("#islands-layer");
-const modal = $("#create-modal"), form = $("#create-form"), titleInput = $("#ranking-title"), descInput = $("#ranking-description"), tagsInput = $("#ranking-tags");
-const detail = $("#ranking-modal"), toast = $("#toast");
-const DEFAULT_FORCES = { coreSpacing:300, outerOffset:1000, ringSpacing:420, tagPull:70, separation:850, randomness:35 };
-const forces = {...DEFAULT_FORCES};
-let lastAppliedForces = {...DEFAULT_FORCES};
-const state = { rankings: [], islands: new Map(), zoom: 1, panX: 0, panY: 0, nextId: 1, panning: null, activeRanking: null, clusterTag: "", layoutSeed: 1, animationFrame: null };
-const COLORS = ["#b7a7ff","#7ed9c4","#f0be85","#f18ca7","#8ec7f3","#d4a0ef"];
-function showToast(message) { toast.textContent = message; toast.classList.add("visible"); clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.classList.remove("visible"), 2800); }
-function openDialog(d) { if (d.showModal) d.showModal(); else d.setAttribute("open", ""); }
-function closeDialog(d) { if (d.close) d.close(); else d.removeAttribute("open"); }
-function cleanTags(raw) { return [...new Set(raw.split(",").map(t => t.trim().replace(/^#+/, "")).filter(Boolean).map(t => t.slice(0, 32)))].slice(0, 8); }
-function tagKey(tag) { return tag.trim().toLocaleLowerCase(); }
-function groupRankings() {
-  // Tags influence forces between individual rankings; they never merge rankings into a container.
-  const matchingTags = [...new Map(state.rankings.flatMap(r=>r.tags).map(t=>[tagKey(t),t])).values()].sort((a,b)=>a.localeCompare(b));
-  const selector=$("#cluster-tag");
-  if(selector){
-    const current=state.clusterTag;
-    selector.replaceChildren();
-    selector.append(new Option("No tag emphasis",""));
-    matchingTags.forEach(t=>selector.append(new Option(t,t)));
-    if(matchingTags.some(t=>tagKey(t)===tagKey(current))) selector.value=matchingTags.find(t=>tagKey(t)===tagKey(current));
-    else { state.clusterTag=""; selector.value=""; }
-  }
-  return state.rankings.map(r=>({
-    key:"ranking:"+r.id, items:[r], tags:r.tags, title:r.title,
-    manual:false, cluster:false
-  }));
+
+const $ = s => document.querySelector(s);
+const canvas = $("#world-map");
+const ctx = canvas.getContext("2d");
+const viewport = $("#canvas-viewport");
+const countLabel = $("#ranking-count");
+const zoomLabel = $("#zoom-level");
+const searchInput = $("#map-search");
+const suggestions = $("#search-results");
+const sidePanel = $("#landmass-panel");
+const toast = $("#toast");
+const rankingDialog = $("#ranking-modal");
+const rankingForm = $("#create-form");
+const landmassForm = $("#landmass-form");
+
+const COLORS = ["#8e83df","#53b6a1","#d79c61","#d77991","#68a5d6","#b780d0","#9ca85c","#d27f58"];
+const state = {
+  rankings: [], landmasses: [], nextRankingId: 1, nextLandmassId: 1,
+  zoom: .16, panX: 0, panY: 0, selectedLandmassId: null, selectedRankingId: null,
+  pointer: null, cameraFrame: null, searchMatches: [], searchIndex: -1
+};
+const MIN_ZOOM = .055, MAX_ZOOM = 2.4;
+const STORAGE_KEY = "rank-the-world-map-v2";
+
+function notify(message) {
+  toast.textContent = message;
+  toast.classList.add("visible");
+  clearTimeout(notify.timer);
+  notify.timer = setTimeout(() => toast.classList.remove("visible"), 2600);
 }
-function islandSize(group) { return { w: 320, h: 260 }; }
-function arrangeIslands(groups, animate=true) {
-  if(state.animationFrame)cancelAnimationFrame(state.animationFrame);
-  const gap=54,selected=state.clusterTag,hasSelected=!!selected;
-  const sectors=new Array(24).fill(0),placed=[];
-  const variation=Math.max(0,Math.min(1,forces.randomness/100));
-  const matches=g=>g.items[0].tags.some(t=>tagKey(t)===tagKey(selected));
-  const matching=hasSelected?groups.filter(matches):groups.slice();
-  const nonmatching=hasSelected?groups.filter(g=>!matches(g)):[];
-  const first=hasSelected?(matching[0]||groups[0]):groups[0],ordered=[];
-  if(first)ordered.push(first);
-  matching.filter(g=>g!==first).forEach(g=>ordered.push(g));
-  nonmatching.forEach(g=>ordered.push(g));
-  groups.splice(0,groups.length,...ordered);
-  const sharedCount=(a,b)=>a.items[0].tags.filter(t=>b.items[0].tags.some(u=>tagKey(t)===tagKey(u))).length;
-  const center=g=>({x:g.targetX+g.w/2,y:g.targetY+g.h/2});
-  ordered.forEach((g,index)=>{
-    const el=layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]');
-    g.w=el?Math.max(260,el.offsetWidth):320;
-    g.h=el?Math.max(180,el.offsetHeight):300;
-    g.vx=0;g.vy=0;
-    if(index===0){g.targetX=-g.w/2;g.targetY=-g.h/2;g.spawnAngle=0;placed.push(g);return;}
-    const size=Math.max(g.w,g.h),angleOffset=Math.random()*Math.PI*2;
-    // Emphasized rankings occupy the compact core; nonmatching rankings
-    // occupy the irregular perimeter beyond a deliberate empty moat.
-    const idealRadius=hasSelected&&matching.includes(g)
-      ?Math.max(145,size*.34)+Math.sqrt(index)*Math.max(85,forces.coreSpacing*.38)
-      :Math.max(1050,size*1.9)+Math.sqrt(index)*Math.max(220,forces.separation*.38);
-    let best=null,bestScore=Infinity;
-    for(let k=0;k<180;k++){
-      const angle=angleOffset+k*Math.PI*2/180;
-      const sector=Math.floor((((angle%(Math.PI*2))+(Math.PI*2))%(Math.PI*2))/(Math.PI*2)*sectors.length);
-      for(let r=0;r<6;r++){
-        const jitter=(Math.random()-.5)*(110+variation*forces.randomness*2.5);
-        const radius=Math.max(size,idealRadius+jitter+(r-2.5)*Math.max(42,size*.15));
-        const cx=Math.cos(angle)*radius,cy=Math.sin(angle)*radius;
-        let score=sectors[sector]*Math.max(110,forces.separation*.24)+Math.abs(radius-idealRadius)*.45;
-        let nearest=Infinity,nearestShared=Infinity,overlapPenalty=0;
-        for(const other of placed){
-          const o=center(other),dx=cx-o.x,dy=cy-o.y,dist=Math.max(1,Math.hypot(dx,dy));
-          nearest=Math.min(nearest,dist);
-          const shared=sharedCount(g,other);
-          if(shared)nearestShared=Math.min(nearestShared,dist-Math.min(120,shared*32));
-          const ox=(g.w+other.w)/2+gap-Math.abs(dx),oy=(g.h+other.h)/2+gap-Math.abs(dy);
-          if(ox>0&&oy>0)overlapPenalty+=260000+ox*oy*4;
-          else {
-            const desired=shared
-              ?Math.max((g.w+other.w)/2+gap+20,forces.separation*(1-(forces.tagPull/100)*Math.min(1,shared/2)))
-              :Math.max((g.w+other.w)/2+gap+20,forces.separation);
-            score+=Math.max(0,desired-dist)*(shared?1.4:.65);
-          }
-        }
-        if(Number.isFinite(nearestShared))score+=Math.max(0,nearestShared-(size+gap+35))*Math.max(.15,1-forces.tagPull/125);
-        if(Number.isFinite(nearest))score+=Math.max(0,size+gap-nearest)*1.8;
-        score+=overlapPenalty+(Math.random()-.5)*(18+variation*65);
-        if(score<bestScore){bestScore=score;best={x:cx-g.w/2,y:cy-g.h/2,angle,sector};}
+function key(text) { return String(text || "").trim().toLocaleLowerCase(); }
+function escapeText(text) { return String(text ?? ""); }
+function hash(text) {
+  let h = 2166136261;
+  for (let i = 0; i < String(text).length; i++) { h ^= String(text).charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function colorFor(id) { return COLORS[hash(id) % COLORS.length]; }
+function primaryTag(ranking) { return ranking.tags && ranking.tags.length ? ranking.tags[0] : "Unsorted"; }
+function makeLandmass(name, autoKey, x, y, manual = false) {
+  return { id: "land-" + state.nextLandmassId++, name, autoKey, x, y, color: colorFor(autoKey || name), manual, createdAt: state.nextLandmassId };
+}
+function nextMapPosition() {
+  const index = state.landmasses.length;
+  const cols = 5;
+  const col = index % cols, row = Math.floor(index / cols);
+  return { x: (col - (cols - 1) / 2) * 1900, y: (row - 1.5) * 1450 };
+}
+function ensureLandmassForRanking(ranking) {
+  if (ranking.landmassId && state.landmasses.some(m => m.id === ranking.landmassId)) return;
+  const tag = primaryTag(ranking), autoKey = key(tag);
+  let mass = state.landmasses.find(m => !m.manual && m.autoKey === autoKey);
+  if (!mass) {
+    const p = nextMapPosition();
+    mass = makeLandmass(tag, autoKey, p.x, p.y, false);
+    state.landmasses.push(mass);
+  }
+  ranking.landmassId = mass.id;
+}
+function rebuildMembership() {
+  state.rankings.forEach(ensureLandmassForRanking);
+  const used = new Set(state.rankings.map(r => r.landmassId));
+  state.landmasses = state.landmasses.filter(m => used.has(m.id));
+  if (!state.landmasses.some(m => m.id === state.selectedLandmassId)) state.selectedLandmassId = null;
+}
+function rankLocalPosition(ranking, indexInMass, count) {
+  const cols = Math.max(1, Math.ceil(Math.sqrt(count * 1.25)));
+  const col = indexInMass % cols, row = Math.floor(indexInMass / cols);
+  const width = (cols - 1) * 255, height = Math.max(0, Math.ceil(count / cols) - 1) * 205;
+  const jitter = (hash(ranking.id) % 31) - 15;
+  return { x: col * 255 - width / 2 + jitter, y: row * 205 - height / 2 + ((hash(ranking.id + "y") % 25) - 12) };
+}
+function groupsForMass(mass) {
+  const ranks = state.rankings.filter(r => r.landmassId === mass.id);
+  return ranks.map((r, i) => ({ ranking: r, ...rankLocalPosition(r, i, ranks.length) }));
+}
+function massBounds(mass) {
+  const items = groupsForMass(mass);
+  if (!items.length) return { x: mass.x - 260, y: mass.y - 200, w: 520, h: 400, items };
+  const xs = items.map(i => i.x), ys = items.map(i => i.y);
+  const minX = Math.min(...xs) - 150, maxX = Math.max(...xs) + 150;
+  const minY = Math.min(...ys) - 120, maxY = Math.max(...ys) + 120;
+  return { x: mass.x + minX, y: mass.y + minY, w: maxX - minX, h: maxY - minY, items };
+}
+function rankWorldPosition(r) {
+  const mass = state.landmasses.find(m => m.id === r.landmassId);
+  if (!mass) return { x: 0, y: 0 };
+  const items = groupsForMass(mass);
+  const item = items.find(i => i.ranking.id === r.id);
+  return item ? { x: mass.x + item.x, y: mass.y + item.y } : { x: mass.x, y: mass.y };
+}
+function resizeCanvas() {
+  const rect = viewport.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+  canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+  canvas.style.width = rect.width + "px"; canvas.style.height = rect.height + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+function screenPoint(worldX, worldY) {
+  const rect = viewport.getBoundingClientRect();
+  return { x: rect.width / 2 + state.panX + worldX * state.zoom, y: rect.height / 2 + state.panY + worldY * state.zoom };
+}
+function worldPoint(screenX, screenY) {
+  const rect = viewport.getBoundingClientRect();
+  return { x: (screenX - rect.width / 2 - state.panX) / state.zoom, y: (screenY - rect.height / 2 - state.panY) / state.zoom };
+}
+function roundRect(c, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  c.beginPath(); c.moveTo(x + rr, y); c.arcTo(x + w, y, x + w, y + h, rr);
+  c.arcTo(x + w, y + h, x, y + h, rr); c.arcTo(x, y + h, x, y, rr);
+  c.arcTo(x, y, x + w, y, rr); c.closePath();
+}
+function pathLandmass(mass, bounds, c) {
+  const { x, y, w, h } = bounds;
+  const cx = x + w / 2, cy = y + h / 2;
+  const radiusX = Math.max(240, w * .66), radiusY = Math.max(180, h * .72);
+  const points = [];
+  const seed = hash(mass.id);
+  for (let i = 0; i < 28; i++) {
+    const a = i * Math.PI * 2 / 28;
+    const wave = 1 + .10 * Math.sin(a * 3 + seed) + .065 * Math.cos(a * 5 + seed * .003) + .035 * Math.sin(a * 7);
+    points.push({ x: cx + Math.cos(a) * radiusX * wave, y: cy + Math.sin(a) * radiusY * wave });
+  }
+  c.beginPath(); c.moveTo(points[0].x, points[0].y);
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i], b = points[(i + 1) % points.length];
+    c.quadraticCurveTo(a.x, a.y, (a.x + b.x) / 2, (a.y + b.y) / 2);
+  }
+  c.closePath();
+}
+function drawThumbnail(r, x, y, size, c) {
+  const base = colorFor(primaryTag(r));
+  roundRect(c, x, y, size, size, Math.max(3, size * .16));
+  c.fillStyle = "#222533"; c.fill();
+  c.save(); c.clip();
+  c.fillStyle = base; c.globalAlpha = .82;
+  c.beginPath(); c.arc(x + size * .35, y + size * .33, size * .28, 0, Math.PI * 2); c.fill();
+  c.globalAlpha = .55; c.fillStyle = "#f3e6c7";
+  c.beginPath(); c.arc(x + size * .72, y + size * .68, size * .2, 0, Math.PI * 2); c.fill();
+  c.globalAlpha = 1; c.fillStyle = "#fff"; c.font = "700 " + Math.max(8, size * .35) + "px system-ui";
+  c.textAlign = "center"; c.textBaseline = "middle";
+  c.fillText((r.title || "?").trim().charAt(0).toUpperCase(), x + size / 2, y + size / 2 + 1);
+  c.restore();
+}
+function drawLandmass(mass) {
+  const c = ctx, bounds = massBounds(mass), selected = mass.id === state.selectedLandmassId;
+  pathLandmass(mass, bounds, c);
+  c.fillStyle = mass.color + "17"; c.fill();
+  c.lineWidth = selected ? 2.2 / state.zoom : 1.3 / state.zoom;
+  c.strokeStyle = selected ? "#c9bcff" : mass.color + "9a"; c.stroke();
+  const ranks = bounds.items, cx = mass.x, cy = mass.y;
+  if (state.zoom < .25) {
+    c.fillStyle = "#151822"; c.beginPath(); c.ellipse(cx, cy, 64, 48, 0, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = mass.color; c.lineWidth = 2 / state.zoom; c.stroke();
+    const featured = ranks.slice(0, 3), thumbSize = 34;
+    featured.forEach((it, i) => {
+      const a = i * Math.PI * 2 / Math.max(1, featured.length) - Math.PI / 2;
+      drawThumbnail(it.ranking, cx + Math.cos(a) * 30 - thumbSize / 2, cy + Math.sin(a) * 23 - thumbSize / 2, thumbSize, c);
+    });
+    c.textAlign = "center"; c.textBaseline = "middle"; c.fillStyle = "#f2f2fa";
+    c.font = "700 24px system-ui"; c.fillText(mass.name, cx, cy + 79);
+    c.font = "12px system-ui"; c.fillStyle = "#aeb3c4"; c.fillText(ranks.length + (ranks.length === 1 ? " ranking" : " rankings"), cx, cy + 100);
+    return;
+  }
+  c.textAlign = "center"; c.textBaseline = "middle";
+  c.fillStyle = mass.color; c.font = "800 20px system-ui";
+  c.fillText(mass.name, cx, bounds.y - 34);
+  c.fillStyle = "#7f879a"; c.font = "11px system-ui";
+  c.fillText(ranks.length + (ranks.length === 1 ? " ranking" : " rankings"), cx, bounds.y - 16);
+  ranks.forEach(({ ranking: r, x, y }) => {
+    const rx = mass.x + x, ry = mass.y + y;
+    if (state.zoom < .58) {
+      drawThumbnail(r, rx - 25, ry - 25, 50, c);
+      if (state.zoom > .34) {
+        c.textAlign = "center"; c.textBaseline = "top"; c.fillStyle = "#e9eaf2";
+        c.font = "600 12px system-ui"; c.fillText(r.title, rx, ry + 31, 180);
       }
+    } else {
+      const w = 205, h = 144;
+      roundRect(c, rx - w / 2, ry - h / 2, w, h, 11);
+      c.fillStyle = "#191c26"; c.fill();
+      c.strokeStyle = r.id === state.selectedRankingId ? "#f0d38a" : "#383e50";
+      c.lineWidth = (r.id === state.selectedRankingId ? 2 : 1) / state.zoom; c.stroke();
+      drawThumbnail(r, rx - w / 2 + 10, ry - h / 2 + 10, 32, c);
+      c.textAlign = "left"; c.textBaseline = "middle"; c.fillStyle = "#f0f1f7";
+      c.font = "700 12px system-ui"; c.fillText(r.title, rx - w / 2 + 50, ry - h / 2 + 26, 140);
+      c.fillStyle = "#9da4b6"; c.font = "10px system-ui"; c.fillText(r.description || "Tier list", rx - w / 2 + 10, ry - h / 2 + 54, 180);
+      const labels = ["S", "A", "B", "C", "D"], colors = ["#e77979", "#e8a45f", "#e4cc70", "#79c69b", "#82b4e8"];
+      labels.forEach((label, i) => {
+        const yy = ry - h / 2 + 67 + i * 13;
+        roundRect(c, rx - w / 2 + 10, yy, 21, 10, 2); c.fillStyle = colors[i]; c.fill();
+        c.fillStyle = "#171923"; c.font = "700 7px system-ui"; c.textAlign = "center"; c.fillText(label, rx - w / 2 + 20.5, yy + 5);
+        c.fillStyle = "#323746";
+        for (let k = 0; k < 3; k++) { roundRect(c, rx - w / 2 + 36 + k * 16, yy, 13, 10, 2); c.fill(); }
+      });
     }
-    if(!best){
-      const angle=angleOffset+index*2.399963229728653,radius=idealRadius+index*size*.3;
-      best={x:Math.cos(angle)*radius-g.w/2,y:Math.sin(angle)*radius-g.h/2,angle,sector:Math.floor(((angle%(Math.PI*2)+Math.PI*2)%(Math.PI*2))/(Math.PI*2)*sectors.length)};
-    }
-    g.targetX=best.x;g.targetY=best.y;g.spawnAngle=best.angle;sectors[best.sector]++;placed.push(g);
   });
-  groups.forEach(g=>{g.x=-g.w/2;g.y=-g.h/2;});
-  state.islands=new Map(groups.map(g=>[g.key,g]));
 }
-function animateIslands(groups, slowAnimation=false) {
-  if(state.animationFrame)cancelAnimationFrame(state.animationFrame);
-  const launchInterval=slowAnimation?1150/3:850/3,maxSpeed=slowAnimation?235:285;
-  const hasEmphasis=!!state.clusterTag;
-  const launchOrder=hasEmphasis
-    ?groups.filter(g=>!g.items[0].tags.some(t=>tagKey(t)===tagKey(state.clusterTag)))
-      .concat(groups.filter(g=>g.items[0].tags.some(t=>tagKey(t)===tagKey(state.clusterTag))))
-    :groups.slice();
-  const bodies=launchOrder.map((g,i)=>{
-    const el=layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]');if(!el)return null;
-    const w=el.offsetWidth||320,h=el.offsetHeight||300;
-    const tx=g.targetX,ty=g.targetY;
-    const angle=i*2.399963229728653+(Math.random()-.5)*.45,radius=i===0?0:Math.min(34,8+i*1.2);
-    const x=Math.cos(angle)*radius-w/2,y=Math.sin(angle)*radius-h/2;
-    const isEmphasized=hasEmphasis&&g.items[0].tags.some(t=>tagKey(t)===tagKey(state.clusterTag));
-    const launchBoost=hasEmphasis&&!isEmphasized?210:0;
-    const targetLength=Math.hypot(tx,ty)||1;
-    const vx=tx/targetLength*launchBoost,vy=ty/targetLength*launchBoost;
-    el.style.left=x+"px";el.style.top=y+"px";el.style.opacity="0";el.style.transform="scale(.94)";el.style.transition="none";
-    return {g,el,x,y,tx,ty,vx,vy,launched:false,settled:false,launchAt:i*launchInterval,order:i,w,h};
-  }).filter(Boolean);
-  const startTime=performance.now();let lastTime=startTime,launchedCount=0;const padding=18;
-  function clampSpeed(b){const s=Math.hypot(b.vx,b.vy);if(s>maxSpeed){b.vx=b.vx/s*maxSpeed;b.vy=b.vy/s*maxSpeed;}}
-  function tick(now){
-    const dt=Math.min(.025,Math.max(.001,(now-lastTime)/1000));lastTime=now;const elapsed=now-startTime;
-    for(const b of bodies)if(!b.launched&&elapsed>=b.launchAt){b.launched=true;launchedCount++;b.el.style.opacity="1";b.el.style.transform="scale(1)";}
-    const active=bodies.filter(b=>b.launched);
-    for(const b of active){
-      const dx=b.tx-b.x,dy=b.ty-b.y;
-      b.vx+=dx*(b.settled?1.35:1.75)*dt;b.vy+=dy*(b.settled?1.35:1.75)*dt;
-      const drag=Math.exp(-(b.settled?2.45:1.25)*dt);b.vx*=drag;b.vy*=drag;
-      if(!b.settled)clampSpeed(b);
-    }
-    // Soft pressure displaces settled neighbors before contact; their destination
-    // spring later closes the wake left by the passing ranking.
-    for(let i=0;i<active.length;i++)for(let j=i+1;j<active.length;j++){
-      const a=active[i],b=active[j];
-      const dx=(b.x+b.w/2)-(a.x+a.w/2),dy=(b.y+b.h/2)-(a.y+a.h/2),dist=Math.hypot(dx,dy);
-      const aNewer=a.order>b.order,bNewer=b.order>a.order;
-      if(dist>1&&dist<430){
-        const newer=aNewer?a:b,older=aNewer?b:a;
-        if(!newer.settled&&older.settled){
-          const ux=((older.x+older.w/2)-(newer.x+newer.w/2))/dist,uy=((older.y+older.h/2)-(newer.y+newer.h/2))/dist;
-          const impulse=(1-dist/430)*48*dt;older.vx+=ux*impulse;older.vy+=uy*impulse;
-        }
-      }
-      const ox=(a.w+b.w)/2+padding-Math.abs(dx),oy=(a.h+b.h)/2+padding-Math.abs(dy);
-      if(ox<=0||oy<=0)continue;
-      let nx,ny;
-      if(dist<1){const tx=b.tx-a.tx,ty=b.ty-a.ty,len=Math.max(1,Math.hypot(tx,ty));nx=tx/len;ny=ty/len;}
-      else{nx=dx/dist;ny=dy/dist;}
-      const penetration=Math.min(Math.abs(nx)>.001?ox/Math.abs(nx):Infinity,Math.abs(ny)>.001?oy/Math.abs(ny):Infinity);
-      if(!Number.isFinite(penetration)||penetration<=0)continue;
-      let shareA=.5,shareB=.5;
-      if(aNewer&&!a.settled&&b.settled){shareA=.16;shareB=.84;}
-      else if(bNewer&&!b.settled&&a.settled){shareA=.84;shareB=.16;}
-      else if(!a.settled&&b.settled){shareA=.2;shareB=.8;}
-      else if(a.settled&&!b.settled){shareA=.8;shareB=.2;}
-      const correction=Math.min(penetration*.88,Math.max(a.w,a.h,b.w,b.h)*.8);
-      a.x-=nx*correction*shareA;a.y-=ny*correction*shareA;b.x+=nx*correction*shareB;b.y+=ny*correction*shareB;
-      const relative=(b.vx-a.vx)*nx+(b.vy-a.vy)*ny;
-      if(relative<0){
-        const impulse=Math.min(115,-relative*.52+penetration*.18);
-        if(aNewer&&!a.settled&&b.settled){b.vx+=nx*impulse;b.vy+=ny*impulse;}
-        else if(bNewer&&!b.settled&&a.settled){a.vx-=nx*impulse;a.vy-=ny*impulse;}
-        else{a.vx-=nx*impulse*shareA;a.vy-=ny*impulse*shareA;b.vx+=nx*impulse*shareB;b.vy+=ny*impulse*shareB;}
-      }
-    }
-    for(const b of active){
-      const distance=Math.hypot(b.tx-b.x,b.ty-b.y),speed=Math.hypot(b.vx,b.vy);
-      if(!b.settled&&distance<15&&speed<25){b.x=b.tx;b.y=b.ty;b.vx=0;b.vy=0;b.settled=true;}
-      b.el.style.left=b.x+"px";b.el.style.top=b.y+"px";b.g.x=b.x;b.g.y=b.y;
-    }
-    const allLaunched=launchedCount===bodies.length;
-    const stable=active.every(b=>Math.hypot(b.tx-b.x,b.ty-b.y)<6&&Math.hypot(b.vx,b.vy)<7);
-    if(!allLaunched||!stable)state.animationFrame=requestAnimationFrame(tick);
-    else state.animationFrame=null;
+function drawGrid() {
+  const c = ctx, rect = viewport.getBoundingClientRect(), topLeft = worldPoint(0, 0), bottomRight = worldPoint(rect.width, rect.height);
+  const spacing = state.zoom < .12 ? 400 : state.zoom < .35 ? 200 : 100;
+  c.save(); c.strokeStyle = "#a6afca"; c.globalAlpha = state.zoom < .1 ? .035 : .06; c.lineWidth = 1 / state.zoom;
+  const x0 = Math.floor(topLeft.x / spacing) * spacing, y0 = Math.floor(topLeft.y / spacing) * spacing;
+  c.beginPath();
+  for (let x = x0; x < bottomRight.x; x += spacing) { c.moveTo(x, topLeft.y); c.lineTo(x, bottomRight.y); }
+  for (let y = y0; y < bottomRight.y; y += spacing) { c.moveTo(topLeft.x, y); c.lineTo(bottomRight.x, y); }
+  c.stroke(); c.restore();
+}
+function draw() {
+  if (!ctx || !canvas.width || !canvas.height) return;
+  const rect = viewport.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, rect.width, rect.height);
+  ctx.save();
+  ctx.translate(rect.width / 2 + state.panX, rect.height / 2 + state.panY);
+  ctx.scale(state.zoom, state.zoom);
+  drawGrid();
+  const visible = state.landmasses.map(m => ({ mass: m, bounds: massBounds(m) }))
+    .filter(({ bounds }) => {
+      const tl = worldPoint(0, 0), br = worldPoint(rect.width, rect.height);
+      return bounds.x + bounds.w > tl.x - 250 && bounds.x < br.x + 250 && bounds.y + bounds.h > tl.y - 250 && bounds.y < br.y + 250;
+    }).sort((a, b) => a.mass.id.localeCompare(b.mass.id));
+  visible.forEach(({ mass }) => drawLandmass(mass));
+  ctx.restore();
+  zoomLabel.textContent = Math.round(state.zoom * 100) + "%";
+  countLabel.textContent = state.rankings.length + (state.rankings.length === 1 ? " ranking" : " rankings") + " · " + state.landmasses.length + " landmasses";
+  $("#canvas-empty").hidden = state.rankings.length > 0;
+  $("#world-map").setAttribute("aria-label", state.rankings.length + " rankings across " + state.landmasses.length + " landmasses");
+}
+function setCamera(zoom, panX, panY) {
+  state.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+  state.panX = panX; state.panY = panY; draw();
+}
+function zoomAt(nextZoom, sx, sy) {
+  const rect = viewport.getBoundingClientRect();
+  const p = worldPoint(sx, sy), z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
+  state.zoom = z; state.panX = sx - rect.width / 2 - p.x * z; state.panY = sy - rect.height / 2 - p.y * z;
+  draw();
+}
+function animateCamera(stages) {
+  if (state.cameraFrame) cancelAnimationFrame(state.cameraFrame);
+  const runStage = index => {
+    if (index >= stages.length) { state.cameraFrame = null; return; }
+    const stage = stages[index], from = { zoom: state.zoom, x: state.panX, y: state.panY }, start = performance.now();
+    const tick = now => {
+      const raw = Math.min(1, (now - start) / stage.duration), t = raw < .5 ? 4 * raw * raw * raw : 1 - Math.pow(-2 * raw + 2, 3) / 2;
+      setCamera(from.zoom + (stage.zoom - from.zoom) * t, from.x + (stage.x - from.x) * t, from.y + (stage.y - from.y) * t);
+      if (raw < 1) state.cameraFrame = requestAnimationFrame(tick);
+      else runStage(index + 1);
+    };
+    state.cameraFrame = requestAnimationFrame(tick);
+  };
+  runStage(0);
+}
+function flyToWorld(x, y, finalZoom = .85) {
+  const target = z => ({ x: -x * z, y: -y * z });
+  const low = MIN_ZOOM * 1.35, lowTarget = target(low), highTarget = target(finalZoom);
+  animateCamera([
+    { zoom: low, x: 0, y: 0, duration: 520 },
+    { zoom: low, x: lowTarget.x, y: lowTarget.y, duration: 680 },
+    { zoom: finalZoom, x: highTarget.x, y: highTarget.y, duration: 620 }
+  ]);
+}
+function findLandmassAt(p) {
+  for (let i = state.landmasses.length - 1; i >= 0; i--) {
+    const m = state.landmasses[i], b = massBounds(m);
+    const rx = b.w * .78 + 30, ry = b.h * .8 + 30;
+    if (Math.pow((p.x - (b.x + b.w / 2)) / rx, 2) + Math.pow((p.y - (b.y + b.h / 2)) / ry, 2) <= 1) return m;
   }
-  state.animationFrame=requestAnimationFrame(tick);
-}
-function createNode(tag, className, text) { const el=document.createElement(tag); if(className)el.className=className; if(text!==undefined)el.textContent=text; return el; }
-function createTagStrings(groups, slowAnimation=false) {
-  // Tag strands are temporarily disabled while the layout and animation are stabilized.
   return null;
 }
-
-function updateTagStringPaths(groups, svg) {
-  // Tag strands are temporarily disabled.
-}
-
-function updateLayoutVisually(changedKey="") {
-  // Adjust the current positions in place. Never run the randomized layout search
-  // from a force-slider event: that would choose new angular positions each time.
-  const groups=[...state.islands.values()];
-  if(!groups.length)return;
-  const width=320,height=260;
-  const elements=groups.map(g=>({g,el:layer.querySelector('[data-key="'+CSS.escape(g.key)+'"]')})).filter(x=>x.el);
-  const positions=elements.map(({g,el})=>({
-    g,el,
-    x:parseFloat(el.style.left)||0,
-    y:parseFloat(el.style.top)||0,
-    cx:(parseFloat(el.style.left)||0)+width/2,
-    cy:(parseFloat(el.style.top)||0)+height/2
-  }));
-  const selected=state.clusterTag;
-  const core=positions.filter(p=>selected&&p.g.items[0].tags.some(t=>tagKey(t)===tagKey(selected)));
-  const coreKeys=new Set(core.map(p=>p.g.key));
-  const center={x:0,y:0};
-  const before={...lastAppliedForces};
-  const after={...forces};
-  const dx=after.coreSpacing-before.coreSpacing;
-  const dOuter=after.outerOffset-before.outerOffset;
-  const dRing=after.ringSpacing-before.ringSpacing;
-  const dSeparation=after.separation-before.separation;
-  const dPull=after.tagPull-before.tagPull;
-  const moved=new Map(positions.map(p=>[p.g.key,{x:p.x,y:p.y}]));
-  const addMove=(key,x,y)=>{
-    const point=moved.get(key);if(!point)return;
-    point.x+=x;point.y+=y;
-  };
-  // Spacing sliders scale along existing radial directions, preserving the layout's shape.
-  if(dx){
-    core.forEach((p,i)=>{
-      const scale=dx/Math.max(1,before.coreSpacing);
-      addMove(p.g.key,p.cx*scale,p.cy*scale);
-    });
-  }
-  if(dOuter||dRing){
-    positions.filter(p=>!coreKeys.has(p.g.key)).forEach(p=>{
-      const radius=Math.max(1,Math.hypot(p.cx,p.cy));
-      const unitX=p.cx/radius,unitY=p.cy/radius;
-      const ringFactor=dRing/Math.max(1,before.ringSpacing);
-      const radialDelta=dOuter+radius*ringFactor;
-      addMove(p.g.key,unitX*radialDelta,unitY*radialDelta);
-    });
-  }
-  // Separation and tag attraction act as small pairwise corrections along each
-  // existing line between rankings; their angles do not get randomized.
-  if(dSeparation||dPull){
-    for(let i=0;i<positions.length;i++)for(let j=i+1;j<positions.length;j++){
-      const a=positions[i],b=positions[j];
-      const dx=b.cx-a.cx,dy=b.cy-a.cy,dist=Math.max(1,Math.hypot(dx,dy));
-      const shared=a.g.items[0].tags.filter(t=>b.g.items[0].tags.some(u=>tagKey(t)===tagKey(u))).length;
-      const factor=Math.min(1,shared/2);
-      const oldDesired=shared?Math.max(width+54+15,before.separation*(1-(before.tagPull/100)*factor)):before.separation;
-      const newDesired=shared?Math.max(width+54+15,after.separation*(1-(after.tagPull/100)*factor)):after.separation;
-      let delta=(newDesired-oldDesired)*0.5;
-      delta=Math.max(-10,Math.min(10,delta));
-      const ux=dx/dist,uy=dy/dist;
-      addMove(a.g.key,-ux*delta*.5,-uy*delta*.5);
-      addMove(b.g.key, ux*delta*.5, uy*delta*.5);
+function findRankingAt(p) {
+  for (const m of state.landmasses) {
+    const items = groupsForMass(m);
+    for (const item of items) {
+      const r = item.ranking, x = m.x + item.x, y = m.y + item.y;
+      const radius = state.zoom >= .58 ? 110 : state.zoom >= .25 ? 45 : 0;
+      if (radius && Math.abs(p.x - x) < radius && Math.abs(p.y - y) < radius) return r;
     }
   }
-  positions.forEach(p=>{
-    const next=moved.get(p.g.key);
-    p.el.style.transition="left 280ms cubic-bezier(.2,.75,.25,1), top 280ms cubic-bezier(.2,.75,.25,1)";
-    p.el.style.left=next.x+"px";p.el.style.top=next.y+"px";
-    p.g.targetX=next.x;p.g.targetY=next.y;
+  return null;
+}
+function selectMass(mass) {
+  state.selectedLandmassId = mass ? mass.id : null;
+  state.selectedRankingId = null;
+  updateLandmassPanel(); draw();
+}
+function updateLandmassPanel() {
+  const mass = state.landmasses.find(m => m.id === state.selectedLandmassId);
+  sidePanel.hidden = !mass;
+  if (!mass) return;
+  $("#landmass-name").value = mass.name;
+  $("#landmass-size").textContent = state.rankings.filter(r => r.landmassId === mass.id).length + " rankings";
+  const merge = $("#merge-target"); merge.replaceChildren(new Option("Choose landmass…", ""));
+  state.landmasses.filter(m => m.id !== mass.id).forEach(m => merge.add(new Option(m.name, m.id)));
+  $("#split-landmass").disabled = state.rankings.filter(r => r.landmassId === mass.id).length < 2;
+}
+function save() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ rankings: state.rankings, landmasses: state.landmasses, nextRankingId: state.nextRankingId, nextLandmassId: state.nextLandmassId })); }
+  catch (e) { console.warn("Could not save the local map", e); }
+}
+function load() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    if (saved && Array.isArray(saved.rankings) && Array.isArray(saved.landmasses)) {
+      state.rankings = saved.rankings; state.landmasses = saved.landmasses;
+      state.nextRankingId = saved.nextRankingId || state.rankings.length + 1;
+      state.nextLandmassId = saved.nextLandmassId || state.landmasses.length + 1;
+      rebuildMembership(); return true;
+    }
+  } catch (e) { console.warn("Could not load local map", e); }
+  return false;
+}
+function changed() { rebuildMembership(); save(); draw(); updateLandmassPanel(); }
+function openRanking(ranking) {
+  state.selectedRankingId = ranking.id;
+  $("#detail-title").textContent = ranking.title;
+  $("#detail-description").textContent = ranking.description || "No description.";
+  $("#detail-tags").replaceChildren(...(ranking.tags || []).map(tag => {
+    const el = document.createElement("span"); el.className = "tag"; el.textContent = "# " + tag; return el;
+  }));
+  const mass = state.landmasses.find(m => m.id === ranking.landmassId);
+  $("#ranking-landmass-label").textContent = mass ? "Landmass: " + mass.name : "";
+  draw();
+  if (rankingDialog.showModal) rankingDialog.showModal();
+}
+function addRanking(title, description, tags) {
+  const r = { id: String(state.nextRankingId++), title, description, tags, landmassId: null };
+  state.rankings.push(r); ensureLandmassForRanking(r); changed();
+  return r;
+}
+function openCreate() {
+  rankingForm.reset(); delete rankingForm.dataset.editId;
+  $("#modal-title").textContent = "Create a ranking";
+  if (rankingForm.querySelector('[type="submit"]')) rankingForm.querySelector('[type="submit"]').textContent = "Create ranking";
+  $("#ranking-landmass-field").hidden = true;
+  $("#create-modal").showModal();
+}
+function startTestSet() {
+  const samples = [
+    ["Naruto Characters","Main and supporting characters",["Naruto","Anime","Characters"]],
+    ["Naruto Openings","Opening themes across the series",["Naruto","Anime","Music"]],
+    ["Naruto Powers","Jutsu, kekkei genkai, and abilities",["Naruto","Anime","Powers"]],
+    ["Naruto Villains","Antagonists from across the series",["Naruto","Anime","Characters"]],
+    ["One Piece Characters","Pirates, marines, and other characters",["One Piece","Anime","Characters"]],
+    ["One Piece Powers","Devil fruits, haki, and techniques",["One Piece","Anime","Powers"]],
+    ["One Piece Arcs","Favorite story arcs",["One Piece","Anime","Story"]],
+    ["Bleach Characters","Soul Reapers, Hollows, and Quincy",["Bleach","Anime","Characters"]],
+    ["Best Anime Openings","Cross-series opening comparison",["Anime","Music","Openings"]],
+    ["Studio Ghibli Films","Animated films",["Studio Ghibli","Anime","Films"]],
+    ["Pokémon Starters","Starter Pokémon by generation",["Pokémon","Games","Characters"]],
+    ["Pokémon Games","Mainline game ranking",["Pokémon","Games"]],
+    ["Star Wars Characters","Heroes and villains",["Star Wars","Sci-Fi","Characters"]],
+    ["Star Wars Films","Films and series",["Star Wars","Sci-Fi","Films"]],
+    ["Fantasy Book Series","Favorite fantasy worlds",["Fantasy Books","Books"]],
+    ["Discworld Characters","Characters from the Discworld novels",["Discworld","Fantasy Books","Characters"]],
+    ["Cosmere Books","Books across the Cosmere",["Cosmere","Fantasy Books","Books"]],
+    ["Video Game Soundtracks","Music from games",["Video Games","Music"]],
+    ["RPG Classes","Classes across roleplaying games",["Tabletop RPG","Games","Fantasy"]],
+    ["D&D Monsters","Monsters and creatures",["Dungeons & Dragons","Tabletop RPG","Fantasy"]]
+  ];
+  let added = 0;
+  samples.forEach(([title, description, tags]) => {
+    if (state.rankings.some(r => key(r.title) === key(title))) return;
+    addRanking(title, description, tags); added++;
   });
-  // Keep the stored positions aligned with the DOM so subsequent adjustments build on them.
-  lastAppliedForces={...after};
-  const strings=layer.querySelector(".tag-strings");
-  if(strings){
-    const began=performance.now();
-    const follow=now=>{
-      updateTagStringPaths(groups,strings);
-      if(now-began<320)requestAnimationFrame(follow);
-    };
-    requestAnimationFrame(follow);
+  if (!added) { notify("The starter test set is already on the map."); return; }
+  changed(); fitWorld(); notify("Added " + added + " sample rankings across thematic landmasses.");
+}
+function addLargeTestSet() {
+  const franchises = [
+    ["Naruto","Anime"],["One Piece","Anime"],["Bleach","Anime"],["Dragon Ball","Anime"],
+    ["Pokémon","Games"],["The Legend of Zelda","Games"],["Final Fantasy","Games"],["Elder Scrolls","Games"],
+    ["Star Wars","Sci-Fi"],["Star Trek","Sci-Fi"],["Dune","Sci-Fi"],["Mass Effect","Sci-Fi"],
+    ["Discworld","Fantasy Books"],["Cosmere","Fantasy Books"],["The Witcher","Fantasy"],["Wheel of Time","Fantasy"],
+    ["Dungeons & Dragons","Tabletop RPG"],["Pathfinder","Tabletop RPG"],["Marvel","Comics"],["DC","Comics"],
+    ["Studio Ghibli","Animation"],["Pixar","Animation"],["Rock Music","Music"],["Game Soundtracks","Music"]
+  ];
+  const kinds = ["Characters","Villains","Heroes","Story Arcs","Worlds","Powers","Best Moments"];
+  let added = 0;
+  for (let i = 0; i < 120; i++) {
+    const [world, broad] = franchises[i % franchises.length];
+    const kind = kinds[Math.floor(i / franchises.length) % kinds.length];
+    const title = world + " — " + kind + " " + (Math.floor(i / (franchises.length * kinds.length)) ? Math.floor(i / (franchises.length * kinds.length)) + 1 : "");
+    if (state.rankings.some(r => key(r.title) === key(title))) continue;
+    addRanking(title, "Sample data for zoom, search, and map performance testing.", [world, broad, kind]); added++;
+  }
+  changed(); fitWorld(); notify(added ? "Added " + added + " test rankings. The map now contains " + state.rankings.length + "." : "The large test set is already on the map.");
+}
+function fitWorld() {
+  if (!state.landmasses.length) { setCamera(.16, 0, 0); return; }
+  const xs = state.landmasses.map(m => m.x), ys = state.landmasses.map(m => m.y);
+  const minX = Math.min(...xs) - 650, maxX = Math.max(...xs) + 650;
+  const minY = Math.min(...ys) - 500, maxY = Math.max(...ys) + 500;
+  const rect = viewport.getBoundingClientRect();
+  const z = Math.max(MIN_ZOOM, Math.min(.28, Math.min(rect.width / Math.max(1, maxX - minX), rect.height / Math.max(1, maxY - minY)) * .88));
+  setCamera(z, -(minX + maxX) / 2 * z, -(minY + maxY) / 2 * z);
+}
+function showSearchResults(query) {
+  const q = key(query);
+  suggestions.replaceChildren(); state.searchMatches = []; state.searchIndex = -1;
+  if (!q) { suggestions.hidden = true; return; }
+  const matches = state.rankings.filter(r => key(r.title).includes(q) || (r.tags || []).some(t => key(t).includes(q)) || key(r.description).includes(q)).slice(0, 8);
+  state.searchMatches = matches;
+  matches.forEach((r, i) => {
+    const mass = state.landmasses.find(m => m.id === r.landmassId);
+    const button = document.createElement("button"); button.type = "button"; button.className = "search-result";
+    const title = document.createElement("strong"); title.textContent = r.title;
+    const sub = document.createElement("span"); sub.textContent = (mass ? mass.name : "Unknown landmass") + " · " + (r.tags || []).slice(0, 2).join(", ");
+    button.append(title, sub); button.addEventListener("click", () => chooseSearchResult(r)); suggestions.append(button);
+  });
+  suggestions.hidden = matches.length === 0;
+}
+function chooseSearchResult(r) {
+  suggestions.hidden = true; searchInput.value = r.title;
+  const p = rankWorldPosition(r);
+  state.selectedLandmassId = r.landmassId; state.selectedRankingId = r.id;
+  updateLandmassPanel(); flyToWorld(p.x, p.y, .92); draw();
+}
+function chooseLandmassSearch(m) {
+  suggestions.hidden = true; searchInput.value = m.name;
+  state.selectedLandmassId = m.id; updateLandmassPanel(); flyToWorld(m.x, m.y, .42);
+}
+function resetMap() { setCamera(.16, 0, 0); state.selectedLandmassId = null; state.selectedRankingId = null; updateLandmassPanel(); }
+function canvasPointerDown(e) {
+  if (e.button !== 0) return;
+  const rect = viewport.getBoundingClientRect(), sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  const p = worldPoint(sx, sy), rank = findRankingAt(p), mass = findLandmassAt(p);
+  state.pointer = { id: e.pointerId, x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, panX: state.panX, panY: state.panY, mass, rank, mode: mass && (e.shiftKey || e.altKey) ? "move-mass" : "pan", massX: mass ? mass.x : 0, massY: mass ? mass.y : 0, moved: false };
+  if (mass && state.zoom < .25) state.pointer.mode = e.shiftKey || e.altKey ? "move-mass" : "select-mass";
+  if (rank && state.zoom >= .58) state.pointer.mode = "select-rank";
+  viewport.setPointerCapture(e.pointerId);
+}
+function canvasPointerMove(e) {
+  const p = state.pointer;
+  if (!p || p.id !== e.pointerId) {
+    const rect = viewport.getBoundingClientRect(), wp = worldPoint(e.clientX - rect.left, e.clientY - rect.top);
+    viewport.style.cursor = findRankingAt(wp) || findLandmassAt(wp) ? "pointer" : "grab";
+    return;
+  }
+  const dx = e.clientX - p.x, dy = e.clientY - p.y;
+  if (Math.abs(e.clientX - p.startX) + Math.abs(e.clientY - p.startY) > 4) p.moved = true;
+  if (p.mode === "move-mass" && p.mass && p.moved) {
+    p.mass.x = p.massX + dx / state.zoom; p.mass.y = p.massY + dy / state.zoom; draw();
+  } else if (p.mode === "pan" && p.moved) {
+    state.panX = p.panX + dx; state.panY = p.panY + dy; draw();
   }
 }
-function render(slowAnimation=false) {
-  const groups=groupRankings();
-  $("#ranking-count").textContent=state.rankings.length+" ranking"+(state.rankings.length===1?"":"s");
-  $("#canvas-empty").hidden=state.rankings.length>0;
-  layer.replaceChildren();
-  const strings=createTagStrings(groups, slowAnimation);
-  if(strings) layer.append(strings);
-  groups.forEach(g=>{
-    const island=createNode("section","island"+(g.cluster?" tag-cluster":" single-ranking"),undefined);
-    island.dataset.key=g.key; island.style.left="0px"; island.style.top="0px";
-    const header=createNode("div","island-header");
-    const emblem=createNode("div","island-emblem",g.tags.length?g.tags[0].slice(0,1).toUpperCase():"◇");
-    emblem.style.color=COLORS[Math.abs(hash(g.key))%COLORS.length];
-    const titleWrap=createNode("div","island-title-wrap");
-    titleWrap.append(createNode("h2","island-title",g.title),createNode("div","island-subtitle",g.cluster?g.items.length+" rankings share this tag":"Visible tier list"));
-    header.append(emblem,titleWrap); island.append(header);
-    const boards=createNode("div","island-rankings");
-    boards.style.gridTemplateColumns=g.cluster?"repeat(2, minmax(0, 1fr))":"minmax(0, 1fr)";
-    g.items.forEach(r=>{
-      const board=createNode("article","ranking-board");
-      board.dataset.rankingId=r.id;
-      const boardHeader=createNode("div","board-header");
-      boardHeader.append(createNode("h3","board-title",r.title));
-      if(r.description)boardHeader.append(createNode("p","board-description",r.description));
-      board.append(boardHeader);
-      const tierGrid=createNode("div","tier-grid");
-      [["S","#ef7777"],["A","#e9a45f"],["B","#e6cf6d"],["C","#80c99b"],["D","#83b6e9"]].forEach(([label,color])=>{
-        const row=createNode("div","tier-row");
-        const tier=createNode("div","tier-label",label);tier.style.background=color;
-        const slots=createNode("div","tier-slots");
-        for(let i=0;i<3;i++)slots.append(createNode("span","tier-slot"));
-        row.append(tier,slots);tierGrid.append(row);
-      });
-      board.append(tierGrid);
-      boards.append(board);
-    });
-    island.append(boards);
-    const footer=createNode("div","island-footer"),tagWrap=createNode("div","island-tags");
-    (g.cluster?g.tags:g.items[0].tags).slice(0,4).forEach(t=>tagWrap.append(createNode("span","tag","# "+t)));
-    if(!g.tags.length)tagWrap.append(createNode("span","island-empty","No tags"));
-    if(g.cluster){footer.append(tagWrap,createNode("span","island-count",g.items.length+" grids"));island.append(footer);} else {footer.append(tagWrap);island.append(footer);}
-    layer.append(island);
-  });
-  // Measure each finished card, including grouped boards, before calculating
-  // destination positions and collision boxes.
-  arrangeIslands(groups, true);
-  applyTransform();
-  animateIslands(groups, slowAnimation);
+function canvasPointerUp(e) {
+  const p = state.pointer; if (!p || p.id !== e.pointerId) return;
+  state.pointer = null;
+  if (p.mode === "move-mass" && p.mass && p.moved) { save(); updateLandmassPanel(); notify("Landmass repositioned."); return; }
+  if (p.moved) return;
+  if (p.mode === "select-rank" && p.rank) { openRanking(p.rank); return; }
+  if (p.mass) {
+    selectMass(p.mass);
+    if (state.zoom < .25) flyToWorld(p.mass.x, p.mass.y, .42);
+  } else { selectMass(null); }
 }
-function hash(str){let h=0;for(let i=0;i<str.length;i++)h=((h<<5)-h)+str.charCodeAt(i)|0;return h;}
-function applyTransform(){world.style.transform="translate("+((viewport.clientWidth/2)+state.panX)+"px,"+((viewport.clientHeight/2)+state.panY)+"px) scale("+state.zoom+")";$("#zoom-level").textContent=Math.round(state.zoom*100)+"%";}
-function screenToWorld(x,y){const rect=viewport.getBoundingClientRect();return {x:(x-rect.left-rect.width/2-state.panX)/state.zoom,y:(y-rect.top-rect.height/2-state.panY)/state.zoom};}
-function setZoom(next, cx=viewport.clientWidth/2, cy=viewport.clientHeight/2){const before=screenToWorld(cx+viewport.getBoundingClientRect().left,cy+viewport.getBoundingClientRect().top);state.zoom=Math.max(.03,Math.min(2.1,next));const rect=viewport.getBoundingClientRect();state.panX=cx-rect.width/2-before.x*state.zoom;state.panY=cy-rect.height/2-before.y*state.zoom;applyTransform();}
-function startPan(e){
-  if(e.button!==0||e.target.closest(".island")||e.target.closest("button"))return;
+viewport.addEventListener("pointerdown", canvasPointerDown);
+viewport.addEventListener("pointermove", canvasPointerMove);
+viewport.addEventListener("pointerup", canvasPointerUp);
+viewport.addEventListener("pointercancel", () => { state.pointer = null; });
+viewport.addEventListener("wheel", e => {
+  e.preventDefault(); const rect = viewport.getBoundingClientRect();
+  zoomAt(state.zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12), e.clientX - rect.left, e.clientY - rect.top);
+}, { passive: false });
+$("#zoom-in").addEventListener("click", () => zoomAt(state.zoom * 1.2, viewport.clientWidth / 2, viewport.clientHeight / 2));
+$("#zoom-out").addEventListener("click", () => zoomAt(state.zoom / 1.2, viewport.clientWidth / 2, viewport.clientHeight / 2));
+$("#reset-view").addEventListener("click", fitWorld);
+$("#create-ranking").addEventListener("click", openCreate);
+$("#empty-create").addEventListener("click", openCreate);
+$("#add-test-lists").addEventListener("click", startTestSet);
+$("#add-100-test-lists").addEventListener("click", addLargeTestSet);
+$("#close-modal").addEventListener("click", () => $("#create-modal").close());
+$("#cancel-modal").addEventListener("click", () => $("#create-modal").close());
+rankingForm.addEventListener("submit", e => {
   e.preventDefault();
-  state.panning={pointerId:e.pointerId,x:e.clientX,y:e.clientY,px:state.panX,py:state.panY};
-  viewport.classList.add("panning");
-  try{viewport.setPointerCapture(e.pointerId);}catch{}
-}
-function movePointer(e){
-  if(!state.panning || e.pointerId!==state.panning.pointerId)return;
-  e.preventDefault();
-  state.panX=state.panning.px+e.clientX-state.panning.x;
-  state.panY=state.panning.py+e.clientY-state.panning.y;
-  applyTransform();
-}
-function endPointer(e){
-  if(e && state.panning && e.pointerId!==undefined && e.pointerId!==state.panning.pointerId)return;
-  if(state.panning){state.panning=null;viewport.classList.remove("panning");}
-}
-viewport.addEventListener("pointerdown",startPan);
-viewport.addEventListener("pointermove",movePointer);
-viewport.addEventListener("pointerup",endPointer);viewport.addEventListener("pointercancel",endPointer);
-viewport.addEventListener("lostpointercapture",endPointer);
-
-viewport.addEventListener("wheel",e=>{e.preventDefault();const rect=viewport.getBoundingClientRect();setZoom(state.zoom*(e.deltaY<0?1.1:1/1.1),e.clientX-rect.left,e.clientY-rect.top);},{passive:false});
-$("#zoom-in").addEventListener("click",()=>setZoom(state.zoom*1.18));$("#zoom-out").addEventListener("click",()=>setZoom(state.zoom/1.18));
-$("#reset-view").addEventListener("click",()=>{state.zoom=1;state.panX=0;state.panY=0;applyTransform();});
-$("#cluster-tag").addEventListener("change",e=>{state.clusterTag=e.target.value;render(true);showToast(state.clusterTag?"Rebuilding layout around tag: "+state.clusterTag:"Rebuilding layout using all shared tags.");});
-function openCreate(){form.reset();openDialog(modal);setTimeout(()=>titleInput.focus(),30);}
-$("#create-ranking").addEventListener("click",openCreate);$("#empty-create").addEventListener("click",openCreate);
-function addTestSet(){
-  const samples=[
-    {title:"Naruto Characters",description:"Main and supporting characters",tags:["Naruto","Characters","Anime"]},
-    {title:"One Piece Characters",description:"Pirates, marines, and other characters",tags:["One Piece","Characters","Anime"]},
-    {title:"Naruto Openings",description:"Opening themes across the series",tags:["Naruto","Openings","Anime","Music"]},
-    {title:"Naruto Powers",description:"Jutsu, kekkei genkai, and abilities",tags:["Naruto","Powers","Anime"]},
-    {title:"One Piece Powers",description:"Devil fruits, haki, and techniques",tags:["One Piece","Powers","Anime"]},
-    {title:"Best Anime Openings",description:"Cross-series opening comparison",tags:["Openings","Anime","Music"]},
-    {title:"Studio Ghibli Films",description:"A separate topic with a few broad tags",tags:["Anime","Films","Studio Ghibli"]}
-  ];
-  let added=0;
-  samples.forEach(sample=>{
-    if(state.rankings.some(r=>r.title.toLocaleLowerCase()===sample.title.toLocaleLowerCase()))return;
-    state.rankings.push({...sample,id:String(state.nextId++)});added++;
+  const title = $("#ranking-title").value.trim(); if (!title) return;
+  const description = $("#ranking-description").value.trim();
+  const tags = [...new Set($("#ranking-tags").value.split(",").map(t => t.trim().replace(/^#+/, "").slice(0, 32)).filter(Boolean))].slice(0, 8);
+  const editId = rankingForm.dataset.editId;
+  if (editId) {
+    const r = state.rankings.find(x => x.id === editId);
+    if (r) { r.title = title; r.description = description; r.tags = tags; }
+    delete rankingForm.dataset.editId;
+    changed(); $("#create-modal").close(); notify("Ranking updated. Its landmass assignment was preserved.");
+  } else {
+    const r = addRanking(title, description, tags);
+    $("#create-modal").close(); const p = rankWorldPosition(r); flyToWorld(p.x, p.y, .92); notify("Ranking added to " + (state.landmasses.find(m => m.id === r.landmassId)?.name || "the map") + ".");
+  }
+});
+$("#close-detail").addEventListener("click", () => rankingDialog.close());
+$("#done-detail").addEventListener("click", () => rankingDialog.close());
+$("#edit-ranking").addEventListener("click", () => {
+  const r = state.rankings.find(x => x.id === state.selectedRankingId); if (!r) return;
+  rankingDialog.close(); rankingForm.reset(); rankingForm.dataset.editId = r.id;
+  $("#modal-title").textContent = "Edit ranking";
+  $("#ranking-title").value = r.title; $("#ranking-description").value = r.description || ""; $("#ranking-tags").value = (r.tags || []).join(", ");
+  $("#ranking-landmass-field").hidden = false;
+  const select = $("#ranking-landmass"); select.replaceChildren();
+  state.landmasses.forEach(m => select.add(new Option(m.name, m.id)));
+  select.value = r.landmassId;
+  $("#create-modal").showModal();
+});
+$("#ranking-landmass").addEventListener("change", e => {
+  const r = state.rankings.find(x => x.id === rankingForm.dataset.editId); if (!r) return;
+  r.landmassId = e.target.value; changed();
+});
+$("#delete-ranking").addEventListener("click", () => {
+  const r = state.rankings.find(x => x.id === state.selectedRankingId); if (!r) return;
+  if (!confirm('Delete "' + r.title + '"?')) return;
+  state.rankings = state.rankings.filter(x => x.id !== r.id); state.selectedRankingId = null;
+  rankingDialog.close(); changed(); notify("Ranking deleted.");
+});
+$("#close-landmass").addEventListener("click", () => selectMass(null));
+$("#landmass-form").addEventListener("submit", e => {
+  e.preventDefault(); const m = state.landmasses.find(x => x.id === state.selectedLandmassId); if (!m) return;
+  const name = $("#landmass-name").value.trim(); if (!name) return;
+  m.name = name; m.manual = true; save(); draw(); updateLandmassPanel(); notify("Landmass renamed.");
+});
+$("#merge-landmass").addEventListener("click", () => {
+  const source = state.landmasses.find(x => x.id === state.selectedLandmassId), target = state.landmasses.find(x => x.id === $("#merge-target").value);
+  if (!source || !target || source.id === target.id) return;
+  state.rankings.filter(r => r.landmassId === source.id).forEach(r => r.landmassId = target.id);
+  state.landmasses = state.landmasses.filter(m => m.id !== source.id);
+  state.selectedLandmassId = target.id; changed(); notify("Landmasses merged into " + target.name + ".");
+});
+$("#split-landmass").addEventListener("click", () => {
+  const source = state.landmasses.find(x => x.id === state.selectedLandmassId); if (!source) return;
+  const members = state.rankings.filter(r => r.landmassId === source.id);
+  if (members.length < 2) return;
+  members.slice(1).forEach((r, i) => {
+    const m = makeLandmass(r.title, "manual:" + r.id, source.x + 650 + (i % 3) * 950, source.y + 450 + Math.floor(i / 3) * 850, true);
+    state.landmasses.push(m); r.landmassId = m.id;
   });
-  if(!added){showToast("The test rankings are already on the canvas.");return;}
-  render();
-  showToast("Added "+added+" test rankings with overlapping tags.");
+  source.manual = true; changed(); notify("Split into " + members.length + " separate landmasses.");
+});
+$("#delete-landmass").addEventListener("click", () => {
+  const source = state.landmasses.find(x => x.id === state.selectedLandmassId); if (!source) return;
+  const members = state.rankings.filter(r => r.landmassId === source.id);
+  if (!confirm("Delete landmass \"" + source.name + "\" and its " + members.length + " rankings?")) return;
+  state.rankings = state.rankings.filter(r => r.landmassId !== source.id);
+  state.landmasses = state.landmasses.filter(m => m.id !== source.id);
+  state.selectedLandmassId = null; changed(); notify("Landmass and its rankings deleted.");
+});
+searchInput.addEventListener("input", () => showSearchResults(searchInput.value));
+searchInput.addEventListener("keydown", e => {
+  if (e.key === "Escape") { suggestions.hidden = true; searchInput.blur(); }
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const q = key(searchInput.value);
+    const rank = state.rankings.find(r => key(r.title) === q) || state.rankings.find(r => key(r.title).includes(q));
+    const mass = state.landmasses.find(m => key(m.name) === q) || state.landmasses.find(m => key(m.name).includes(q));
+    if (rank) chooseSearchResult(rank); else if (mass) chooseLandmassSearch(mass); else if (state.searchMatches[0]) chooseSearchResult(state.searchMatches[0]);
+    else notify("No ranking or landmass matches that search.");
+  }
+});
+document.addEventListener("pointerdown", e => {
+  if (!e.target.closest(".search-wrap")) suggestions.hidden = true;
+});
+window.addEventListener("resize", resizeCanvas);
+window.addEventListener("keydown", e => {
+  if (e.key === "Escape") suggestions.hidden = true;
+  if ((e.key === "+" || e.key === "=") && !e.target.matches("input,textarea")) zoomAt(state.zoom * 1.2, viewport.clientWidth / 2, viewport.clientHeight / 2);
+  if (e.key === "-" && !e.target.matches("input,textarea")) zoomAt(state.zoom / 1.2, viewport.clientWidth / 2, viewport.clientHeight / 2);
+});
+
+if (!load()) {
+  state.rankings = [];
+  state.landmasses = [];
 }
-$("#add-test-lists").addEventListener("click",addTestSet);
-
-function addLargeTestSet(){
-  const anime=[
-    ["Naruto","Ninja","Action"],["One Piece","Pirates","Adventure"],["Hunter x Hunter","Nen","Adventure"],
-    ["Frieren: Beyond Journey's End","Fantasy","Magic"],["Fullmetal Alchemist: Brotherhood","Alchemy","Fantasy"],
-    ["Jujutsu Kaisen","Curses","Action"],["Attack on Titan","Dark Fantasy","War"],
-    ["Cowboy Bebop","Space","Sci-Fi"],["Studio Ghibli Films","Animation","Fantasy"],
-    ["JoJo's Bizarre Adventure","Supernatural","Action"],["Mob Psycho 100","Psychic","Comedy"],
-    ["Death Note","Thriller","Mystery"]
-  ];
-  const games=[
-    ["Baldur's Gate 3","RPG","Fantasy"],["Elden Ring","Soulslike","Fantasy"],["Minecraft","Sandbox","Building"],
-    ["The Witcher 3","RPG","Fantasy"],["Stardew Valley","Simulation","Cozy"],
-    ["Final Fantasy XIV","MMORPG","Fantasy"],["The Legend of Zelda","Adventure","Fantasy"],
-    ["Portal","Puzzle","Sci-Fi"],["Hades","Roguelike","Mythology"],["Mass Effect","RPG","Sci-Fi"]
-  ];
-  const music=[
-    ["Orchestral Game Soundtracks","Soundtrack","Gaming"],["Anime Opening Themes","Openings","Anime"],
-    ["Rock Albums","Rock","Albums"],["Electronic Music","Electronic","Production"],
-    ["Hip-Hop Albums","Hip-Hop","Lyrics"],["Video Game Boss Themes","Soundtrack","Gaming"],
-    ["Movie Soundtracks","Soundtrack","Film"],["Progressive Rock","Rock","Composition"]
-  ];
-  const animeTypes=[
-    ["Characters","Characters","Storytelling"],["Villains","Villains","Characters"],
-    ["Best Story Arcs","Story Arcs","Writing"],["Opening Themes","Openings","Music"]
-  ];
-  const gameTypes=[
-    ["Characters","Characters","Storytelling"],["Bosses and Enemies","Bosses","Combat"],
-    ["Worlds and Locations","Worldbuilding","Exploration"],["Soundtracks","Soundtrack","Music"]
-  ];
-  const musicTypes=[
-    ["Artists and Composers","Artists","Music"],["Standout Tracks","Tracks","Soundtrack"],
-    ["Style and Production","Production","Composition"]
-  ];
-  const samples=[];
-  anime.forEach(([name,genre,shared])=>animeTypes.forEach(([kind,t1,t2])=>samples.push({
-    title:name+" — "+kind,description:"Sample anime ranking for layout and tag-relationship testing.",
-    tags:["Anime",genre,shared,t1,t2].filter((v,i,a)=>a.indexOf(v)===i)
-  })));
-  games.forEach(([name,genre,shared])=>gameTypes.forEach(([kind,t1,t2])=>samples.push({
-    title:name+" — "+kind,description:"Sample game ranking for layout and tag-relationship testing.",
-    tags:["Video Games",genre,shared,t1,t2].filter((v,i,a)=>a.indexOf(v)===i)
-  })));
-  music.forEach(([name,genre,shared])=>musicTypes.forEach(([kind,t1,t2])=>samples.push({
-    title:name+" — "+kind,description:"Sample music ranking for layout and tag-relationship testing.",
-    tags:["Music",genre,shared,t1,t2].filter((v,i,a)=>a.indexOf(v)===i)
-  })));
-  let added=0;
-  const existing=new Set(state.rankings.map(r=>r.title.toLocaleLowerCase()));
-  samples.forEach(sample=>{
-    if(existing.has(sample.title.toLocaleLowerCase()))return;
-    state.rankings.push({...sample,id:String(state.nextId++)});
-    existing.add(sample.title.toLocaleLowerCase());added++;
-  });
-  if(!added){showToast("The large test set is already on the canvas.");return;}
-  render();
-  showToast("Added "+added+" varied test rankings. Total: "+state.rankings.length+".");
-}
-$("#add-100-test-lists").addEventListener("click",addLargeTestSet);
-
-
-$("#close-modal").addEventListener("click",()=>closeDialog(modal));$("#cancel-modal").addEventListener("click",()=>closeDialog(modal));
-modal.addEventListener("click",e=>{if(e.target===modal)closeDialog(modal);});
-form.addEventListener("submit",e=>{e.preventDefault();const title=titleInput.value.trim();if(!title){titleInput.focus();return;}const id=form.dataset.editId;if(id){const r=state.rankings.find(x=>x.id===id);if(!r)return;r.title=title;r.description=descInput.value.trim();r.tags=cleanTags(tagsInput.value);delete form.dataset.editId;$("#modal-title").textContent="Create a ranking";form.querySelector('[type="submit"]').textContent="Create ranking";closeDialog(modal);render();showToast("Ranking updated; islands are reforming by tag relationships.");return;}state.rankings.push({id:String(state.nextId++),title,description:descInput.value.trim(),tags:cleanTags(tagsInput.value)});closeDialog(modal);render();showToast("Ranking added; the islands are forming.");});
-modal.addEventListener("close",()=>{delete form.dataset.editId;$("#modal-title").textContent="Create a ranking";form.querySelector('[type="submit"]').textContent="Create ranking";});
-
-const forceControls=[
-  ["coreSpacing","force-core-spacing",v=>v+" px"],
-  ["outerOffset","force-outer-offset",v=>v+" px"],
-  ["ringSpacing","force-ring-spacing",v=>v+" px"],
-  ["tagPull","force-tag-pull",v=>v+"%"],
-  ["separation","force-separation",v=>v+" px"],
-  ["randomness","force-randomness",v=>v+"%"]
-];
-function syncForceControls(){
-  forceControls.forEach(([key,id,format])=>{
-    const input=$("#"+id),output=$("#"+id+"-value");
-    if(input)input.value=forces[key];
-    if(output)output.textContent=format(forces[key]);
-  });
-}
-forceControls.forEach(([key,id,format])=>{
-  $("#"+id).addEventListener("input",e=>{
-    forces[key]=Number(e.target.value);
-    $("#"+id+"-value").textContent=format(forces[key]);
-    updateLayoutVisually(key);
-  });
-});
-$("#reset-forces").addEventListener("click",()=>{
-  Object.assign(forces,DEFAULT_FORCES);syncForceControls();updateLayoutVisually();showToast("Layout forces reset.");
-});
-$("#export-forces").addEventListener("click",()=>{
-  const payload={format:"rank-the-world-layout-preset",version:1,forces:{...forces}};
-  const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
-  const url=URL.createObjectURL(blob);
-  const link=document.createElement("a");link.href=url;link.download="rank-the-world-layout-preset.json";link.click();
-  setTimeout(()=>URL.revokeObjectURL(url),1000);
-  showToast("Layout preset exported.");
-});
-$("#import-forces").addEventListener("change",async e=>{
-  const file=e.target.files&&e.target.files[0];if(!file)return;
-  try{
-    const parsed=JSON.parse(await file.text());
-    const source=parsed&&parsed.format==="rank-the-world-layout-preset"&&parsed.forces;
-    if(!source)throw new Error("Not a Rank the World layout preset.");
-    forceControls.forEach(([key,id])=>{
-      const input=$("#"+id),value=Number(source[key]);
-      if(Number.isFinite(value))forces[key]=Math.max(Number(input.min),Math.min(Number(input.max),value));
-    });
-    syncForceControls();updateLayoutVisually();showToast("Layout preset imported.");
-  }catch(error){showToast("Could not import preset: "+error.message);}
-  e.target.value="";
-});
-$("#toggle-forces").addEventListener("click",()=>{
-  const sidebar=$("#force-sidebar"),collapsed=sidebar.classList.toggle("collapsed");
-  $("#toggle-forces").textContent=collapsed?"+":"−";
-  $("#toggle-forces").setAttribute("aria-label",collapsed?"Expand layout settings":"Collapse layout settings");
-});
-syncForceControls();
-
-window.addEventListener("resize",applyTransform);
-applyTransform();
+resizeCanvas();
+draw();
+updateLandmassPanel();
 })();
