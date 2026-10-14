@@ -153,16 +153,17 @@ function drawLandmass(mass) {
   c.strokeStyle = selected ? "#c9bcff" : mass.color + "9a"; c.stroke();
   const ranks = bounds.items, cx = mass.x, cy = mass.y;
   if (state.zoom < .25) {
-    c.fillStyle = "#151822"; c.beginPath(); c.ellipse(cx, cy, 64, 48, 0, 0, Math.PI * 2); c.fill();
-    c.strokeStyle = mass.color; c.lineWidth = 2 / state.zoom; c.stroke();
-    const featured = ranks.slice(0, 3), thumbSize = 34;
+    const unit = 1 / state.zoom;
+    c.fillStyle = "#151822"; c.beginPath(); c.ellipse(cx, cy, 34 * unit, 26 * unit, 0, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = mass.color; c.lineWidth = 1.5 / state.zoom; c.stroke();
+    const featured = ranks.slice(0, 3), thumbSize = 18 * unit;
     featured.forEach((it, i) => {
       const a = i * Math.PI * 2 / Math.max(1, featured.length) - Math.PI / 2;
-      drawThumbnail(it.ranking, cx + Math.cos(a) * 30 - thumbSize / 2, cy + Math.sin(a) * 23 - thumbSize / 2, thumbSize, c);
+      drawThumbnail(it.ranking, cx + Math.cos(a) * 17 * unit - thumbSize / 2, cy + Math.sin(a) * 13 * unit - thumbSize / 2, thumbSize, c);
     });
     c.textAlign = "center"; c.textBaseline = "middle"; c.fillStyle = "#f2f2fa";
-    c.font = "700 24px system-ui"; c.fillText(mass.name, cx, cy + 79);
-    c.font = "12px system-ui"; c.fillStyle = "#aeb3c4"; c.fillText(ranks.length + (ranks.length === 1 ? " ranking" : " rankings"), cx, cy + 100);
+    c.font = "700 " + (12 * unit) + "px system-ui"; c.fillText(mass.name, cx, cy + 45 * unit, 170 * unit);
+    c.font = (10 * unit) + "px system-ui"; c.fillStyle = "#aeb3c4"; c.fillText(ranks.length + (ranks.length === 1 ? " ranking" : " rankings"), cx, cy + 60 * unit);
     return;
   }
   c.textAlign = "center"; c.textBaseline = "middle";
@@ -176,7 +177,8 @@ function drawLandmass(mass) {
       drawThumbnail(r, rx - 25, ry - 25, 50, c);
       if (state.zoom > .34) {
         c.textAlign = "center"; c.textBaseline = "top"; c.fillStyle = "#e9eaf2";
-        c.font = "600 12px system-ui"; c.fillText(r.title, rx, ry + 31, 180);
+        const labelUnit = 1 / Math.min(1, state.zoom);
+        c.font = "600 " + (12 * labelUnit) + "px system-ui"; c.fillText(r.title, rx, ry + 31 * labelUnit, 180 * labelUnit);
       }
     } else {
       const w = 205, h = 144;
@@ -329,7 +331,7 @@ function openRanking(ranking) {
 }
 function addRanking(title, description, tags) {
   const r = { id: String(state.nextRankingId++), title, description, tags, landmassId: null };
-  state.rankings.push(r); ensureLandmassForRanking(r); changed();
+  state.rankings.push(r); ensureLandmassForRanking(r);
   return r;
 }
 function openCreate() {
@@ -485,7 +487,13 @@ rankingForm.addEventListener("submit", e => {
   const editId = rankingForm.dataset.editId;
   if (editId) {
     const r = state.rankings.find(x => x.id === editId);
-    if (r) { r.title = title; r.description = description; r.tags = tags; }
+    if (r) {
+      const oldMass = state.landmasses.find(m => m.id === r.landmassId);
+      const tagsChanged = key(primaryTag(r)) !== key(primaryTag({ tags }));
+      r.title = title; r.description = description; r.tags = tags;
+      if (tagsChanged && oldMass && !oldMass.manual) r.landmassId = null;
+      if (!r.landmassId || !state.landmasses.some(m => m.id === r.landmassId)) ensureLandmassForRanking(r);
+    }
     delete rankingForm.dataset.editId;
     changed(); $("#create-modal").close(); notify("Ranking updated. Its landmass assignment was preserved.");
   } else {
@@ -526,6 +534,7 @@ $("#merge-landmass").addEventListener("click", () => {
   const source = state.landmasses.find(x => x.id === state.selectedLandmassId), target = state.landmasses.find(x => x.id === $("#merge-target").value);
   if (!source || !target || source.id === target.id) return;
   state.rankings.filter(r => r.landmassId === source.id).forEach(r => r.landmassId = target.id);
+  target.manual = true;
   state.landmasses = state.landmasses.filter(m => m.id !== source.id);
   state.selectedLandmassId = target.id; changed(); notify("Landmasses merged into " + target.name + ".");
 });
