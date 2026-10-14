@@ -87,27 +87,39 @@ function continentGroups() {
 function activeCountryLayout(groupName) {
   const masses=state.landmasses.filter(m=>continentForMass(m)===groupName).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
   if(!masses.length)return new Map();
-  const measured=masses.map(m=>({m,b:massBounds(m)})), cols=Math.max(1,Math.ceil(Math.sqrt(masses.length)),), rows=Math.ceil(masses.length/cols);
-  const colWidths=Array.from({length:cols},(_,col)=>Math.max(520,...measured.filter((_,i)=>i%cols===col).map(v=>v.b.w)));
-  const rowHeights=Array.from({length:rows},(_,row)=>Math.max(400,...measured.filter((_,i)=>Math.floor(i/cols)===row).map(v=>v.b.h)));
+  // Use each country's full drawn footprint, not just its ranking-content bounds.
+  // The landmass outline extends beyond massBounds, so sizing cells from b.w/b.h
+  // lets countries overlap and makes the fitted continent appear clipped.
+  const measured=masses.map(m=>{
+    const b=massBounds(m), footprint=landmassFootprint(m);
+    return {m,b,w:Math.max(b.w,footprint.halfW*2),h:Math.max(b.h,footprint.halfH*2)};
+  });
+  const cols=Math.max(1,Math.ceil(Math.sqrt(masses.length))), rows=Math.ceil(masses.length/cols);
+  const colWidths=Array.from({length:cols},(_,col)=>Math.max(520,...measured.filter((_,i)=>i%cols===col).map(v=>v.w)));
+  const rowHeights=Array.from({length:rows},(_,row)=>Math.max(400,...measured.filter((_,i)=>Math.floor(i/cols)===row).map(v=>v.h)));
   const colX=[],rowY=[]; let x=0,y=0;
   colWidths.forEach((w,i)=>{colX[i]=x+w/2;x+=w+120;});
   rowHeights.forEach((h,i)=>{rowY[i]=y+h/2;y+=h+120;});
   const totalW=x-120,totalH=y-120;
-  return new Map(measured.map((v,i)=>[v.m.id,{x:colX[i%cols]-totalW/2,y:rowY[Math.floor(i/cols)]-totalH/2,w:v.b.w,h:v.b.h}]));
+  return new Map(measured.map((v,i)=>[v.m.id,{x:colX[i%cols]-totalW/2,y:rowY[Math.floor(i/cols)]-totalH/2,w:v.w,h:v.h}]));
 }
 function displayMass(mass) {
   if(!state.activeContinent||continentForMass(mass)!==state.activeContinent)return mass;
   const pos=activeCountryLayout(state.activeContinent).get(mass.id);
   return pos?{...mass,x:pos.x,y:pos.y}:mass;
 }
-function continentLayoutFitZoom(groupName) {
+function continentLayoutBounds(groupName) {
   const positions=[...activeCountryLayout(groupName).values()];
-  if(!positions.length)return .42;
-  const minX=Math.min(...positions.map(v=>v.x-v.w/2))-100, maxX=Math.max(...positions.map(v=>v.x+v.w/2))+100;
-  const minY=Math.min(...positions.map(v=>v.y-v.h/2))-100, maxY=Math.max(...positions.map(v=>v.y+v.h/2))+100;
+  if(!positions.length)return {minX:0,maxX:0,minY:0,maxY:0,cx:0,cy:0};
+  const minX=Math.min(...positions.map(v=>v.x-v.w/2)), maxX=Math.max(...positions.map(v=>v.x+v.w/2));
+  const minY=Math.min(...positions.map(v=>v.y-v.h/2)), maxY=Math.max(...positions.map(v=>v.y+v.h/2));
+  return {minX,maxX,minY,maxY,cx:(minX+maxX)/2,cy:(minY+maxY)/2};
+}
+function continentLayoutFitZoom(groupName) {
+  const bounds=continentLayoutBounds(groupName);
+  if(bounds.maxX===bounds.minX||bounds.maxY===bounds.minY)return .42;
   const rect=viewport.getBoundingClientRect();
-  return Math.max(MIN_ZOOM,Math.min(.8,Math.min(rect.width/Math.max(1,maxX-minX),rect.height/Math.max(1,maxY-minY))*.88));
+  return Math.max(MIN_ZOOM,Math.min(.8,Math.min(rect.width/Math.max(1,bounds.maxX-bounds.minX),rect.height/Math.max(1,bounds.maxY-bounds.minY))*.88));
 }
 function makeLandmass(name, autoKey, x, y, manual = false) {
   return { id: "land-" + state.nextLandmassId++, name, autoKey, x, y, color: colorFor(autoKey || name), manual, createdAt: state.nextLandmassId };
@@ -487,13 +499,18 @@ function setCamera(zoom, panX, panY) {
   state.panX = panX; state.panY = panY; draw();
 }
 function zoomAt(nextZoom, sx, sy) {
-  const rect = viewport.getBoundingClientRect();
-  const p = worldPoint(sx, sy), z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
-  if(state.activeContinent && state.activeContinentExitZoom !== null && z < state.activeContinentExitZoom) {
-    fitWorld();
-    return;
+  const rect = viewport.getBoundingClientRect(), z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
+  if(state.activeContinent) {
+    const fitZoom=continentLayoutFitZoom(state.activeContinent);
+    // Keep the complete country layout centred and visible. Only return to the
+    // world overview when the requested zoom would be too small to fit it.
+    if(z < fitZoom * .995) { fitWorld(); return; }
+    const bounds=continentLayoutBounds(state.activeContinent);
+    state.zoom=z; state.panX=-bounds.cx*z; state.panY=-bounds.cy*z;
+    draw(); return;
   }
-  if(!state.activeContinent && z < .25) state.activeContinentExitZoom=null;
+  const p = worldPoint(sx, sy);
+  if(z < .25) state.activeContinentExitZoom=null;
   state.zoom = z; state.panX = sx - rect.width / 2 - p.x * z; state.panY = sy - rect.height / 2 - p.y * z;
   draw();
 }
@@ -682,15 +699,13 @@ function fitWorld() {
 }
 function focusContinent(group) {
   if(!group.masses.length)return;
+  if(state.cameraFrame) cancelAnimationFrame(state.cameraFrame);
+  state.cameraFrame=null;
   state.activeContinent=group.name;
-  const positions=activeCountryLayout(group.name), values=[...positions.values()];
-  const minX=Math.min(...values.map(v=>v.x-v.w/2))-100, maxX=Math.max(...values.map(v=>v.x+v.w/2))+100;
-  const minY=Math.min(...values.map(v=>v.y-v.h/2))-100, maxY=Math.max(...values.map(v=>v.y+v.h/2))+100;
-  const rect=viewport.getBoundingClientRect();
-  const z=continentLayoutFitZoom(group.name);
-  state.activeContinentExitZoom=Math.max(MIN_ZOOM*1.15,z*.62);
-  const x=(minX+maxX)/2,y=(minY+maxY)/2;
-  animateCamera([{zoom:Math.min(state.zoom,.22),x:state.panX,y:state.panY,duration:240},{zoom:z,x:-x*z,y:-y*z,duration:650}]);
+  const bounds=continentLayoutBounds(group.name), z=continentLayoutFitZoom(group.name);
+  state.activeContinentExitZoom=z;
+  // Switch to the compact continent layout and fit its entire footprint at once.
+  setCamera(z,-bounds.cx*z,-bounds.cy*z);
 }
 function showSearchResults(query) {
   const q = key(query);
