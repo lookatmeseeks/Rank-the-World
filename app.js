@@ -193,8 +193,8 @@ function landmassFootprint(mass) {
   const bounds = massBounds(mass);
   const factor = landmassSizeFactor(mass);
   return {
-    halfW: Math.max(240 * factor, bounds.w * .66) * 1.23 + 100,
-    halfH: Math.max(180 * factor, bounds.h * .72) * 1.23 + 100
+    halfW: Math.max(270 * factor, bounds.w * .74) * 1.23 + 100,
+    halfH: Math.max(210 * factor, bounds.h * .78) * 1.23 + 100
   };
 }
 function overlapsLandmass(a, b) {
@@ -344,7 +344,7 @@ function pathLandmass(mass, bounds, c) {
   const { x, y, w, h } = bounds;
   const cx = x + w / 2, cy = y + h / 2;
   const sizeFactor = landmassSizeFactor(mass);
-  const radiusX = Math.max(240 * sizeFactor, w * .66), radiusY = Math.max(180 * sizeFactor, h * .72);
+  const radiusX = Math.max(270 * sizeFactor, w * .74), radiusY = Math.max(210 * sizeFactor, h * .78);
   const points = [];
   const seed = hash(mass.id);
   for (let i = 0; i < 28; i++) {
@@ -394,7 +394,7 @@ function drawLandmass(mass) {
   c.lineWidth = selected ? 2.2 / state.zoom : 1.3 / state.zoom;
   c.strokeStyle = selected ? "#c9bcff" : mass.color + "9a"; c.stroke();
   const ranks = state.viewLevel === "list" && state.activeCategory ? bounds.items.filter(it => key(cityName(it.ranking)) === key(state.activeCategory)) : bounds.items, cx = mass.x, cy = mass.y;
-  if (state.viewLevel === "world" || (state.viewLevel === "continent" && state.zoom < .25)) {
+  if (state.viewLevel === "world") {
     const unit = 1 / state.zoom;
     c.fillStyle = "#151822"; c.beginPath(); c.ellipse(cx, cy, 34 * unit, 26 * unit, 0, 0, Math.PI * 2); c.fill();
     c.strokeStyle = mass.color; c.lineWidth = 1.5 / state.zoom; c.stroke();
