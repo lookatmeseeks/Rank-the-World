@@ -830,28 +830,26 @@ function showSearchResults(query) {
 }
 function chooseSearchResult(r) {
   suggestions.hidden = true; searchInput.value = r.title;
-  const continent=continentGroups().find(g=>g.name===(r.continent||inferContinent(r)));
-  if(continent)focusContinent(continent);
-  const mass=state.landmasses.find(m=>m.id===r.landmassId);
-  const shown=mass?displayMass(mass):null;
-  const p=rankWorldPosition(r);
-  state.selectedLandmassId = r.landmassId; state.selectedRankingId = r.id;
-  updateLandmassPanel();
-  if(shown) {
-    const zoom=Math.min(.92,Math.max(continentLayoutFitZoom(state.activeContinent),.58));
-    const bounds=continentLayoutBounds(state.activeContinent);
-    // Search focuses the result without losing the tracked continent.
-    const rect=viewport.getBoundingClientRect();
-    const targetX=rect.width/2-p.x*zoom, targetY=rect.height/2-p.y*zoom;
-    animateCamera([{zoom:Math.max(continentLayoutFitZoom(state.activeContinent),Math.min(.92,zoom)),x:targetX-rect.width/2,y:targetY-rect.height/2,duration:500}]);
+  const group = continentGroups().find(g => g.name === (r.continent || inferContinent(r)));
+  if (group) focusContinent(group);
+  const mass = state.landmasses.find(m => m.id === r.landmassId);
+  if (mass) {
+    focusCountry(mass, .30);
+    focusCategory(mass, cityName(r), .68);
+    state.selectedLandmassId = r.landmassId;
+    state.selectedRankingId = r.id;
+    updateLandmassPanel();
+    const p = rankWorldPosition(r), rect = viewport.getBoundingClientRect(), zoom = .78;
+    animateCamera([{zoom, x: -p.x * zoom, y: -p.y * zoom, duration: 520}]);
   }
   draw();
 }
 function chooseLandmassSearch(m) {
-  suggestions.hidden=true; searchInput.value=m.name;
-  const group=continentGroups().find(g=>g.name===continentForMass(m));
-  if(group)focusContinent(group);
-  state.selectedLandmassId=m.id; updateLandmassPanel();
+  suggestions.hidden = true; searchInput.value = m.name;
+  const group = continentGroups().find(g => g.name === continentForMass(m));
+  if (group) focusContinent(group);
+  focusCountry(m, .30);
+  updateLandmassPanel();
   draw();
 }
 function resetMap() { state.viewLevel="world"; state.activeCountryId=null; state.activeCategory=null; state.activeContinent=null; state.activeContinentExitZoom=null; setCamera(.16, 0, 0); state.selectedLandmassId = null; state.selectedRankingId = null; updateLandmassPanel(); }
