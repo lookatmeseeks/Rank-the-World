@@ -413,7 +413,7 @@ function drawLandmass(mass) {
   c.fillText(mass.name, cx, bounds.y - 48 / state.zoom);
   c.fillStyle = "#aab1c2"; c.font = (16 / state.zoom) + "px system-ui";
   c.fillText(ranks.length + (ranks.length === 1 ? " ranking" : " rankings"), cx, bounds.y - 23 / state.zoom);
-  if (state.viewLevel === "continent" || (state.viewLevel === "country" && state.zoom < 1.55)) {
+  if (state.viewLevel === "continent") {
     const cities = new Map();
     ranks.forEach(it => {
       const city = cityName(it.ranking);
@@ -437,7 +437,7 @@ function drawLandmass(mass) {
   }
   ranks.forEach(({ ranking: r, x, y }) => {
     const rx = mass.x + x, ry = mass.y + y;
-    if (state.viewLevel === "continent" || state.viewLevel === "country") {
+    if (state.viewLevel === "continent") {
       drawThumbnail(r, rx - 25, ry - 25, 50, c);
       if (state.zoom > .34) {
         c.textAlign = "center"; c.textBaseline = "top"; c.fillStyle = "#e9eaf2";
@@ -594,9 +594,11 @@ function zoomAt(nextZoom, sx, sy) {
     }
     if (state.viewLevel === "country") {
       const mass = state.landmasses.find(m => m.id === state.activeCountryId);
-      const category = categoryAt(mass, p);
-      if (category && focusCategory(mass, category, 1.6)) return;
-      state.zoom = range.max; state.panX = -displayMass(mass).x * state.zoom; state.panY = -displayMass(mass).y * state.zoom; draw(); return;
+      state.viewLevel = "list";
+      state.activeCategory = null;
+      state.zoom = range.max;
+      if (mass) { const shown = displayMass(mass); state.panX = -shown.x * state.zoom; state.panY = -shown.y * state.zoom; }
+      draw(); return;
     }
     state.zoom = range.max;
   } else if (z < range.min) {
@@ -848,7 +850,7 @@ function chooseLandmassSearch(m) {
   suggestions.hidden = true; searchInput.value = m.name;
   const group = continentGroups().find(g => g.name === continentForMass(m));
   if (group) focusContinent(group);
-  focusCountry(m, .30);
+  focusCountry(m, .98);
   updateLandmassPanel();
   draw();
 }
@@ -861,7 +863,7 @@ function canvasPointerDown(e) {
   let mode = e.button === 1 ? "pan" : "select-empty";
   if (e.button === 0 && continent) mode = "select-continent";
   else if (e.button === 0 && mass) mode = e.shiftKey || e.altKey ? "move-mass" : "select-mass";
-  if (e.button === 0 && rank && state.viewLevel === "list") mode = "select-rank";
+  if (e.button === 0 && rank && (state.viewLevel === "list" || state.viewLevel === "country")) mode = "select-rank";
   state.pointer = { id: e.pointerId, button: e.button, x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, panX: state.panX, panY: state.panY, mass, rank, continent, mode, massX: mass ? mass.x : 0, massY: mass ? mass.y : 0, moved: false };
   viewport.setPointerCapture(e.pointerId);
 }
