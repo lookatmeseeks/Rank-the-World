@@ -775,7 +775,7 @@ $("#ranking-landmass").addEventListener("change", e => {
   const r = state.rankings.find(x => x.id === rankingForm.dataset.editId); if (!r) return;
   r.landmassId = e.target.value;
   const mass = state.landmasses.find(m => m.id === r.landmassId);
-  if (mass) $("#ranking-country").value = mass.name;
+  if (mass) { r.country = mass.name; $("#ranking-country").value = mass.name; }
   changed();
 });
 $("#delete-ranking").addEventListener("click", () => {
@@ -788,15 +788,17 @@ $("#close-landmass").addEventListener("click", () => selectMass(null));
 $("#landmass-form").addEventListener("submit", e => {
   e.preventDefault(); const m = state.landmasses.find(x => x.id === state.selectedLandmassId); if (!m) return;
   const name = $("#landmass-name").value.trim(); if (!name) return;
-  m.name = name; m.manual = true; save(); draw(); updateLandmassPanel(); notify("Landmass renamed.");
+  m.name = name; m.manual = true;
+  state.rankings.filter(r => r.landmassId === m.id).forEach(r => { r.country = name; });
+  save(); draw(); updateLandmassPanel(); notify("Country renamed.");
 });
 $("#merge-landmass").addEventListener("click", () => {
   const source = state.landmasses.find(x => x.id === state.selectedLandmassId), target = state.landmasses.find(x => x.id === $("#merge-target").value);
   if (!source || !target || source.id === target.id) return;
-  state.rankings.filter(r => r.landmassId === source.id).forEach(r => r.landmassId = target.id);
+  state.rankings.filter(r => r.landmassId === source.id).forEach(r => { r.landmassId = target.id; r.country = target.name; r.continent = continentForMass(target); });
   target.manual = true;
   state.landmasses = state.landmasses.filter(m => m.id !== source.id);
-  state.selectedLandmassId = target.id; changed(); notify("Landmasses merged into " + target.name + ".");
+  state.selectedLandmassId = target.id; changed(); notify("Countries merged into " + target.name + ".");
 });
 $("#split-landmass").addEventListener("click", () => {
   const source = state.landmasses.find(x => x.id === state.selectedLandmassId); if (!source) return;
@@ -804,7 +806,7 @@ $("#split-landmass").addEventListener("click", () => {
   if (members.length < 2) return;
   members.slice(1).forEach((r, i) => {
     const m = makeLandmass(r.title, "manual:" + r.id, source.x + 650 + (i % 3) * 950, source.y + 450 + Math.floor(i / 3) * 850, true);
-    state.landmasses.push(m); r.landmassId = m.id;
+    state.landmasses.push(m); r.landmassId = m.id; r.country = m.name;
   });
   source.manual = true; changed(); notify("Split into " + members.length + " separate landmasses.");
 });
@@ -814,7 +816,7 @@ $("#delete-landmass").addEventListener("click", () => {
   if (!confirm("Delete landmass \"" + source.name + "\" and its " + members.length + " rankings?")) return;
   state.rankings = state.rankings.filter(r => r.landmassId !== source.id);
   state.landmasses = state.landmasses.filter(m => m.id !== source.id);
-  state.selectedLandmassId = null; changed(); notify("Landmass and its rankings deleted.");
+  state.selectedLandmassId = null; changed(); notify("Country and its rankings deleted.");
 });
 searchInput.addEventListener("input", () => showSearchResults(searchInput.value));
 searchInput.addEventListener("keydown", e => {
