@@ -723,7 +723,7 @@ $("#edit-ranking").addEventListener("click", () => {
   const r = state.rankings.find(x => x.id === state.selectedRankingId); if (!r) return;
   rankingDialog.close(); rankingForm.reset(); rankingForm.dataset.editId = r.id;
   $("#modal-title").textContent = "Edit ranking";
-  $("#ranking-title").value = r.title; $("#ranking-description").value = r.description || ""; $("#ranking-tags").value = (r.tags || []).join(", "); $("#ranking-thumbnail").value = r.thumbnailUrl || "";
+  $("#ranking-title").value = r.title; $("#ranking-description").value = r.description || ""; $("#ranking-tags").value = (r.tags || []).join(", "); $("#ranking-thumbnail").value = r.thumbnailUrl || ""; $("#ranking-continent").value = r.continent || inferContinent(r); $("#ranking-country").value = r.country || primaryTag(r); $("#ranking-city").value = r.city || "General"; $("#ranking-creator").value = r.creator || "Guest";
   $("#ranking-landmass-field").hidden = false;
   const select = $("#ranking-landmass"); select.replaceChildren();
   state.landmasses.forEach(m => select.add(new Option(m.name, m.id)));
@@ -732,7 +732,10 @@ $("#edit-ranking").addEventListener("click", () => {
 });
 $("#ranking-landmass").addEventListener("change", e => {
   const r = state.rankings.find(x => x.id === rankingForm.dataset.editId); if (!r) return;
-  r.landmassId = e.target.value; changed();
+  r.landmassId = e.target.value;
+  const mass = state.landmasses.find(m => m.id === r.landmassId);
+  if (mass) $("#ranking-country").value = mass.name;
+  changed();
 });
 $("#delete-ranking").addEventListener("click", () => {
   const r = state.rankings.find(x => x.id === state.selectedRankingId); if (!r) return;
