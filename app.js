@@ -16,6 +16,7 @@ const rankingForm = $("#create-form");
 const landmassForm = $("#landmass-form");
 
 const COLORS = ["#8e83df","#53b6a1","#d79c61","#d77991","#68a5d6","#b780d0","#9ca85c","#d27f58"];
+const thumbnailCache = new Map();
 const state = {
   rankings: [], landmasses: [], nextRankingId: 1, nextLandmassId: 1,
   zoom: .16, panX: 0, panY: 0, selectedLandmassId: null, selectedRankingId: null,
@@ -132,6 +133,20 @@ function pathLandmass(mass, bounds, c) {
   c.closePath();
 }
 function drawThumbnail(r, x, y, size, c) {
+  if (r.thumbnailUrl) {
+    let image = thumbnailCache.get(r.thumbnailUrl);
+    if (!image) {
+      image = new Image();
+      thumbnailCache.set(r.thumbnailUrl, image);
+      image.onload = () => draw();
+      image.onerror = () => { thumbnailCache.delete(r.thumbnailUrl); };
+      image.src = r.thumbnailUrl;
+    }
+    if (image.complete && image.naturalWidth > 0) {
+      c.save(); roundRect(c, x, y, size, size, Math.max(3, size * .16)); c.clip();
+      c.drawImage(image, x, y, size, size); c.restore(); return;
+    }
+  }
   const base = colorFor(primaryTag(r));
   roundRect(c, x, y, size, size, Math.max(3, size * .16));
   c.fillStyle = "#222533"; c.fill();
@@ -329,8 +344,8 @@ function openRanking(ranking) {
   draw();
   if (rankingDialog.showModal) rankingDialog.showModal();
 }
-function addRanking(title, description, tags) {
-  const r = { id: String(state.nextRankingId++), title, description, tags, landmassId: null };
+function addRanking(title, description, tags, thumbnailUrl = "") {
+  const r = { id: String(state.nextRankingId++), title, description, tags, thumbnailUrl, landmassId: null };
   state.rankings.push(r); ensureLandmassForRanking(r);
   return r;
 }
@@ -484,21 +499,22 @@ rankingForm.addEventListener("submit", e => {
   const title = $("#ranking-title").value.trim(); if (!title) return;
   const description = $("#ranking-description").value.trim();
   const tags = [...new Set($("#ranking-tags").value.split(",").map(t => t.trim().replace(/^#+/, "").slice(0, 32)).filter(Boolean))].slice(0, 8);
+  const thumbnailUrl = $("#ranking-thumbnail").value.trim();
   const editId = rankingForm.dataset.editId;
   if (editId) {
     const r = state.rankings.find(x => x.id === editId);
     if (r) {
       const oldMass = state.landmasses.find(m => m.id === r.landmassId);
       const tagsChanged = key(primaryTag(r)) !== key(primaryTag({ tags }));
-      r.title = title; r.description = description; r.tags = tags;
+      r.title = title; r.description = description; r.tags = tags; r.thumbnailUrl = $("#ranking-thumbnail").value.trim();
       if (tagsChanged && oldMass && !oldMass.manual) r.landmassId = null;
       if (!r.landmassId || !state.landmasses.some(m => m.id === r.landmassId)) ensureLandmassForRanking(r);
     }
     delete rankingForm.dataset.editId;
     changed(); $("#create-modal").close(); notify("Ranking updated. Its landmass assignment was preserved.");
   } else {
-    const r = addRanking(title, description, tags);
-    $("#create-modal").close(); const p = rankWorldPosition(r); flyToWorld(p.x, p.y, .92); notify("Ranking added to " + (state.landmasses.find(m => m.id === r.landmassId)?.name || "the map") + ".");
+    const r = addRanking(title, description, tags, thumbnailUrl);
+    changed(); $("#create-modal").close(); const p = rankWorldPosition(r); flyToWorld(p.x, p.y, .92); notify("Ranking added to " + (state.landmasses.find(m => m.id === r.landmassId)?.name || "the map") + ".");
   }
 });
 $("#close-detail").addEventListener("click", () => rankingDialog.close());
@@ -507,7 +523,7 @@ $("#edit-ranking").addEventListener("click", () => {
   const r = state.rankings.find(x => x.id === state.selectedRankingId); if (!r) return;
   rankingDialog.close(); rankingForm.reset(); rankingForm.dataset.editId = r.id;
   $("#modal-title").textContent = "Edit ranking";
-  $("#ranking-title").value = r.title; $("#ranking-description").value = r.description || ""; $("#ranking-tags").value = (r.tags || []).join(", ");
+  $("#ranking-title").value = r.title; $("#ranking-description").value = r.description || ""; $("#ranking-tags").value = (r.tags || []).join(", "); $("#ranking-thumbnail").value = r.thumbnailUrl || "";
   $("#ranking-landmass-field").hidden = false;
   const select = $("#ranking-landmass"); select.replaceChildren();
   state.landmasses.forEach(m => select.add(new Option(m.name, m.id)));
