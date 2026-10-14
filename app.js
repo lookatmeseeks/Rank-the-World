@@ -481,6 +481,7 @@ function setCamera(zoom, panX, panY) {
 function zoomAt(nextZoom, sx, sy) {
   const rect = viewport.getBoundingClientRect();
   const p = worldPoint(sx, sy), z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
+  if (z < .25) state.activeContinent = null;
   state.zoom = z; state.panX = sx - rect.width / 2 - p.x * z; state.panY = sy - rect.height / 2 - p.y * z;
   draw();
 }
@@ -886,6 +887,7 @@ if (!load()) {
   state.landmasses = [];
 }
 resizeCanvas();
+fitWorld();
 draw();
 updateLandmassPanel();
 })();
