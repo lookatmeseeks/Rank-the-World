@@ -152,6 +152,18 @@ function positionWithoutOverlap(mass, desired, placed) {
   mass.x = desired.x + placed.length * step;
   mass.y = desired.y;
 }
+function countryWorldPosition(mass, automatic) {
+  const continent = continentForMass(mass);
+  const continents = [...new Set(automatic.map(continentForMass))].sort((a,b) => a.localeCompare(b));
+  const ci = Math.max(0, continents.indexOf(continent));
+  const countries = automatic.filter(m => continentForMass(m) === continent).sort((a,b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const index = Math.max(0, countries.indexOf(mass));
+  const cols = Math.max(1, Math.ceil(Math.sqrt(countries.length)));
+  return {
+    x: (ci % 3 - 1) * 5200 + (index % cols - (Math.min(cols, countries.length) - 1) / 2) * 1450,
+    y: (Math.floor(ci / 3) - .5) * 4300 + Math.floor(index / cols) * 1450
+  };
+}
 function arrangeAutomaticLandmasses() {
   const ordered = [
     ...state.landmasses.filter(m => m.manual).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)),
@@ -162,7 +174,7 @@ function arrangeAutomaticLandmasses() {
   ordered.forEach(mass => {
     const desired = mass.manual
       ? { x: mass.x, y: mass.y }
-      : worldPositionForIndex(automatic.indexOf(mass));
+      : countryWorldPosition(mass, automatic);
     positionWithoutOverlap(mass, desired, placed);
     placed.push(mass);
   });
@@ -452,6 +464,15 @@ function flyToWorld(x, y, finalZoom = .85) {
     { zoom: finalZoom, x: highTarget.x, y: highTarget.y, duration: 620 }
   ]);
 }
+function findContinentAt(p) {
+  const groups = continentGroups();
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const g = groups[i], rx = Math.max(48, 27 + Math.sqrt(g.count) * 4) / state.zoom;
+    const ry = rx * .72;
+    if (Math.pow((p.x - g.x) / rx, 2) + Math.pow((p.y - g.y) / ry, 2) <= 1) return g;
+  }
+  return null;
+}
 function findLandmassAt(p) {
   for (let i = state.landmasses.length - 1; i >= 0; i--) {
     const m = state.landmasses[i], b = massBounds(m);
@@ -637,11 +658,12 @@ function canvasPointerDown(e) {
   if (e.button !== 0 && e.button !== 1) return;
   if (e.button === 1) e.preventDefault();
   const rect = viewport.getBoundingClientRect(), sx = e.clientX - rect.left, sy = e.clientY - rect.top;
-  const p = worldPoint(sx, sy), rank = findRankingAt(p), mass = findLandmassAt(p);
+  const p = worldPoint(sx, sy), continent = state.zoom < .25 ? findContinentAt(p) : null, rank = findRankingAt(p), mass = findLandmassAt(p);
   let mode = e.button === 1 ? "pan" : "select-empty";
+  if (e.button === 0 && continent) mode = "select-continent";
   if (e.button === 0 && mass) mode = e.shiftKey || e.altKey ? "move-mass" : "select-mass";
   if (e.button === 0 && rank && state.zoom >= .58) mode = "select-rank";
-  state.pointer = { id: e.pointerId, button: e.button, x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, panX: state.panX, panY: state.panY, mass, rank, mode, massX: mass ? mass.x : 0, massY: mass ? mass.y : 0, moved: false };
+  state.pointer = { id: e.pointerId, button: e.button, x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, panX: state.panX, panY: state.panY, mass, rank, continent, mode, massX: mass ? mass.x : 0, massY: mass ? mass.y : 0, moved: false };
   viewport.setPointerCapture(e.pointerId);
 }
 function canvasPointerMove(e) {
@@ -669,6 +691,7 @@ function canvasPointerUp(e) {
   }
   if (p.mode === "pan" || p.moved) return;
   if (p.mode === "select-rank" && p.rank) { openRanking(p.rank); return; }
+  if (p.mode === "select-continent" && p.continent) { state.selectedLandmassId = null; state.selectedRankingId = null; updateLandmassPanel(); flyToWorld(p.continent.x, p.continent.y, .42); return; }
   if (p.mode === "select-mass" && p.mass) {
     selectMass(p.mass);
     if (state.zoom < .25) flyToWorld(p.mass.x, p.mass.y, .42);
