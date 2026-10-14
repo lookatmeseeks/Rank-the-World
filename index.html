@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#101116">
-<meta name="description" content="A shared canvas for building and exploring tier lists.">
+<meta name="description" content="Explore a world map of tier lists, from thematic landmasses to individual rankings.">
 <title>Rank the World</title>
 <link rel="stylesheet" href="./styles.css">
 <script src="./app.js" defer></script>
@@ -12,57 +12,71 @@
 <body>
 <header class="toolbar">
   <a class="brand" href="./"><span class="brand-mark">R</span><span>Rank the World</span></a>
-  <div class="toolbar-center"><span class="live-dot"></span><span id="workspace-label">Shared world</span><span class="toolbar-divider"></span><span id="ranking-count">0 rankings</span></div>
-  <div class="toolbar-actions"><button class="tool-button" id="add-test-lists" type="button" title="Add a repeatable set of sample rankings">＋ Test lists</button><button class="tool-button" id="add-100-test-lists" type="button" title="Add 100+ varied sample rankings for layout and performance testing">＋ 100 test lists</button><button class="primary-button" id="create-ranking" type="button">＋ Add ranking</button></div>
+  <div class="toolbar-center"><span class="live-dot"></span><span>World map</span><span class="toolbar-divider"></span><span id="ranking-count">0 rankings · 0 landmasses</span></div>
+  <div class="toolbar-actions">
+    <div class="search-wrap">
+      <input id="map-search" type="search" autocomplete="off" placeholder="Search rankings or landmasses…" aria-label="Search rankings or landmasses">
+      <div id="search-results" class="search-results" hidden></div>
+    </div>
+    <button class="tool-button" id="add-test-lists" type="button" title="Add a starter set of sample rankings">＋ Test lists</button>
+    <button class="tool-button" id="add-100-test-lists" type="button" title="Add 120 varied rankings for performance testing">＋ 100+ lists</button>
+    <button class="primary-button" id="create-ranking" type="button">＋ Add ranking</button>
+  </div>
 </header>
-  <aside class="force-sidebar" id="force-sidebar" aria-label="Layout force settings">
-    <div class="force-heading"><div><p class="eyebrow">LAYOUT ENGINE</p><h2>Tag forces</h2></div><button class="icon-button" id="toggle-forces" type="button" aria-label="Collapse layout settings">−</button></div>
-    <p class="force-intro">Force sliders move the existing islands live. Only changing the emphasized tag rebuilds the layout.</p>
-    <div class="force-rebuild"><label for="cluster-tag">Emphasize tag <span class="rebuild-mark">REBUILDS LAYOUT</span></label><select class="cluster-select" id="cluster-tag" aria-label="Choose a tag to rebuild the island layout"><option value="">No tag emphasis</option></select><p class="force-hint">Changes which rankings form the central group and which orbit outside it.</p></div>
-    <div class="force-controls">
-      <label for="force-core-spacing"><span>Center spacing</span><output id="force-core-spacing-value">300 px</output></label><input id="force-core-spacing" type="range" min="240" max="420" step="10" value="300">
-      <p class="force-hint">Only with a tag emphasized: spreads or compresses rankings that match it inside the central group.</p>
-      <label for="force-outer-offset"><span>Outer offset</span><output id="force-outer-offset-value">1000 px</output></label><input id="force-outer-offset" type="range" min="600" max="1800" step="50" value="1000">
-      <p class="force-hint">Controls the gap from the central group to nonmatching rankings. With no tag emphasized, it shifts the whole radial layout.</p>
-      <label for="force-ring-spacing"><span>Orbit spacing</span><output id="force-ring-spacing-value">420 px</output></label><input id="force-ring-spacing" type="range" min="300" max="800" step="25" value="420">
-      <p class="force-hint">Controls the distance between outer rings. It does not set the gap between every pair of rankings.</p>
-      <label for="force-tag-pull"><span>Shared-tag attraction</span><output id="force-tag-pull-value">70%</output></label><input id="force-tag-pull" type="range" min="0" max="100" step="5" value="70">
-      <p class="force-hint">Changes the preferred distance only for pairs that share one or more tags. Higher values pull those pairs closer.</p>
-      <label for="force-separation"><span>Unrelated separation</span><output id="force-separation-value">850 px</output></label><input id="force-separation" type="range" min="500" max="1400" step="50" value="850">
-      <p class="force-hint">Sets the preferred distance for pairs with no tags in common. It is the baseline before shared-tag attraction.</p>
-      <label for="force-randomness"><span>Layout variation</span><output id="force-randomness-value">35%</output></label><input id="force-randomness" type="range" min="0" max="100" step="5" value="35"><p class="force-hint"><span class="rebuild-mark">REBUILDS LAYOUT</span> Changes the randomness used when rankings are placed during a full rebuild; it does not move the current layout.</p>
-    </div>
-    <div class="force-actions"><button class="secondary-button" id="reset-forces" type="button">Reset</button><button class="primary-button" id="export-forces" type="button">Export preset</button></div>
-    <label class="import-preset" for="import-forces">Import preset file<input id="import-forces" type="file" accept=".json,application/json"></label>
-  </aside>
 <main class="world">
-  <div class="canvas-help"><span class="help-icon">↔</span> Drag empty space to move around <span class="help-sep">·</span> Scroll to zoom</div>
-  <div class="canvas-viewport" id="canvas-viewport" aria-label="Ranking canvas">
-    <div class="canvas-world" id="canvas-world">
-      <div class="world-origin" aria-hidden="true"></div>
-      <div class="islands-layer" id="islands-layer"></div>
+  <div class="canvas-help"><span class="help-icon">⌖</span> Drag empty space to pan · Scroll to zoom · Shift-drag a landmass to move it</div>
+  <div class="canvas-viewport" id="canvas-viewport" aria-label="Interactive ranking world map">
+    <canvas id="world-map"></canvas>
+    <div class="canvas-empty" id="canvas-empty">
+      <div class="empty-orbit"><span>R</span><i></i><i></i><i></i></div>
+      <h1>Your world is empty</h1>
+      <p>Add rankings to form your first landmasses. The map reveals more detail as you zoom in.</p>
+      <div class="empty-actions"><button class="primary-button" id="empty-create" type="button">＋ Create ranking</button><button class="secondary-button" id="empty-test" type="button">＋ Load test world</button></div>
     </div>
-    <div class="canvas-empty" id="canvas-empty"><div class="empty-orbit"><span>R</span><i></i><i></i><i></i></div><h1>Your world is empty</h1><p>Create a ranking to start your first island. Rankings attract each other through shared tags. Emphasize a tag to strengthen those relationships.</p><button class="primary-button" id="empty-create" type="button">＋ Create your first ranking</button></div>
-    <div class="zoom-controls"><button id="zoom-in" type="button" aria-label="Zoom in">＋</button><span id="zoom-level">100%</span><button id="zoom-out" type="button" aria-label="Zoom out">−</button><button id="reset-view" type="button" aria-label="Reset view" title="Reset view">⌖</button></div>
+    <aside class="landmass-panel" id="landmass-panel" hidden>
+      <div class="panel-heading"><div><span class="eyebrow">SELECTED REGION</span><h2>Landmass</h2></div><button class="icon-button" id="close-landmass" type="button" aria-label="Close landmass panel">×</button></div>
+      <form id="landmass-form">
+        <label for="landmass-name">Landmass name</label>
+        <input id="landmass-name" maxlength="80" required>
+        <div class="panel-meta" id="landmass-size"></div>
+        <button class="primary-button full-button" type="submit">Save name</button>
+      </form>
+      <div class="panel-section">
+        <label for="merge-target">Merge this landmass into</label>
+        <select id="merge-target"><option value="">Choose landmass…</option></select>
+        <button class="secondary-button full-button" id="merge-landmass" type="button">Merge landmasses</button>
+      </div>
+      <div class="panel-section">
+        <p class="panel-note">Splitting creates a separate landmass for each ranking in this region. Shift-drag a landmass on the map to reposition it.</p>
+        <button class="secondary-button full-button" id="split-landmass" type="button">Split into separate landmasses</button>
+        <button class="danger-button full-button" id="delete-landmass" type="button">Delete landmass and rankings</button>
+      </div>
+    </aside>
+    <div class="zoom-controls"><button id="zoom-in" type="button" aria-label="Zoom in">＋</button><span id="zoom-level">16%</span><button id="zoom-out" type="button" aria-label="Zoom out">−</button><button id="reset-view" type="button" aria-label="Fit world" title="Fit world">⌖</button></div>
+    <div class="map-legend"><span class="legend-swatch"></span> Auto-generated landmass <span class="legend-dot"></span> Selected</div>
   </div>
 </main>
 <dialog class="modal" id="create-modal" aria-labelledby="modal-title">
   <form id="create-form">
     <div class="modal-heading"><div><p class="eyebrow">ADD TO YOUR WORLD</p><h2 id="modal-title">Create a ranking</h2></div><button class="icon-button" type="button" id="close-modal" aria-label="Close">×</button></div>
     <label for="ranking-title">Ranking name</label><input id="ranking-title" name="title" maxlength="100" placeholder="e.g. Best anime openings" required>
-    <label for="ranking-description">Description <span class="optional">(optional)</span></label><textarea id="ranking-description" name="description" rows="2" maxlength="300" placeholder="What are you ranking?"></textarea>
-    <label for="ranking-tags">Tags <span class="optional">· separate with commas</span></label><input id="ranking-tags" name="tags" maxlength="160" placeholder="e.g. Anime, Music, Openings">
-    <p class="field-hint">Tags describe relationships, but All shared tags influence proximity. The selected tag strengthens its pull without merging rankings into fixed groups.</p>
-    <div class="modal-note">This prototype currently stores changes in this browser session only. Shared database saving comes next.</div>
+    <label for="ranking-description">Description <span class="optional">(optional)</span></label><textarea id="ranking-description" name="description" rows="2" maxlength="300" placeholder="What is this ranking about?"></textarea>
+    <label for="ranking-tags">Tags <span class="optional">· first tag is the main topic</span></label><input id="ranking-tags" name="tags" maxlength="200" placeholder="e.g. Naruto, Anime, Characters">
+    <p class="field-hint">The first tag determines the default landmass. You can move rankings between landmasses by editing a ranking, or merge and split landmasses from the map.</p>
+    <div class="modal-note">This prototype saves its map in this browser using local storage. It is not yet a shared database.</div>
+    <div class="ranking-landmass-field" id="ranking-landmass-field" hidden><label for="ranking-landmass">Landmass assignment</label><select id="ranking-landmass"></select></div>
     <div class="modal-actions"><button class="secondary-button" type="button" id="cancel-modal">Cancel</button><button class="primary-button" type="submit">Create ranking</button></div>
   </form>
 </dialog>
 <dialog class="modal small-modal" id="ranking-modal" aria-labelledby="detail-title">
-  <div class="modal-heading"><div><p class="eyebrow">RANKING</p><h2 id="detail-title">Ranking title</h2></div><button class="icon-button" type="button" id="close-detail" aria-label="Close">×</button></div>
+  <div class="modal-heading"><div><p class="eyebrow">RANKING DETAILS</p><h2 id="detail-title">Ranking title</h2></div><button class="icon-button" type="button" id="close-detail" aria-label="Close">×</button></div>
   <p id="detail-description" class="detail-description"></p><div id="detail-tags" class="tag-list"></div>
-  <div class="detail-placeholder"><span class="detail-symbol">▤</span><strong>Tier-list editor comes next</strong><p>This canvas prototype establishes how rankings are placed and grouped. The next step is the actual tier-list editor and Supabase saving.</p></div>
-  <div class="modal-actions"><button class="secondary-button" id="edit-tags" type="button">Edit tags</button><button class="primary-button" id="done-detail" type="button">Done</button></div>
+  <div class="detail-placeholder"><span class="detail-symbol">▤</span><strong id="ranking-landmass-label">Landmass</strong><p>This view is a map prototype. Detailed tier-list editing can be connected after the world navigation is established.</p></div>
+  <div class="modal-actions"><button class="danger-button" id="delete-ranking" type="button">Delete ranking</button><button class="secondary-button" id="edit-ranking" type="button">Edit ranking</button><button class="primary-button" id="done-detail" type="button">Done</button></div>
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+document.getElementById("empty-test").addEventListener("click", () => document.getElementById("add-test-lists").click());
+</script>
 </body>
 </html>
