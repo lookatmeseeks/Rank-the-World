@@ -39,7 +39,44 @@ function hash(text) {
   return h >>> 0;
 }
 function colorFor(id) { return COLORS[hash(id) % COLORS.length]; }
-function primaryTag(ranking) { return ranking.tags && ranking.tags.length ? ranking.tags[0] : "Unsorted"; }
+const CONTINENTS = ["Anime","Games","Movies","Manga","Music","Books","Fantasy","Sci-Fi","Comics","Animation","Tabletop RPG","Other"];
+function primaryTag(ranking) { return ranking.country || (ranking.tags && ranking.tags.length ? ranking.tags[0] : "Unsorted"); }
+function inferContinent(ranking) {
+  const tags = (ranking.tags || []).map(key);
+  const known = CONTINENTS.find(c => tags.includes(key(c)));
+  if (known) return known;
+  const fallback = { "naruto":"Anime","one piece":"Anime","bleach":"Anime","dragon ball":"Anime","studio ghibli":"Movies","pixar":"Movies","pokémon":"Games","pokemon":"Games","the legend of zelda":"Games","final fantasy":"Games","elder scrolls":"Games","star wars":"Movies","star trek":"Sci-Fi","dune":"Sci-Fi","mass effect":"Games","discworld":"Books","cosmere":"Books","the witcher":"Games","wheel of time":"Books","dungeons & dragons":"Tabletop RPG","pathfinder":"Tabletop RPG","marvel":"Comics","dc":"Comics","rock music":"Music","game soundtracks":"Music","video games":"Games" };
+  return fallback[key(ranking.country || ranking.tags?.[0])] || "Other";
+}
+function migrateRanking(ranking) {
+  ranking.tags = Array.isArray(ranking.tags) ? ranking.tags : [];
+  const oldMass = state.landmasses.find(m => m.id === ranking.landmassId);
+  ranking.continent = ranking.continent || inferContinent(ranking);
+  ranking.country = ranking.country || oldMass?.name || ranking.tags[0] || "Unsorted";
+  ranking.city = ranking.city || (ranking.tags.length >= 3 ? ranking.tags[2] : "General");
+  ranking.creator = ranking.creator || "Guest";
+  return ranking;
+}
+function cityName(ranking) { return ranking.city || "General"; }
+function continentForMass(mass) {
+  const member = state.rankings.find(r => r.landmassId === mass.id);
+  return member ? (member.continent || inferContinent(member)) : "Other";
+}
+function continentGroups() {
+  const groups = new Map();
+  state.landmasses.forEach(m => {
+    const name = continentForMass(m);
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(m);
+  });
+  return [...groups].map(([name, masses]) => ({
+    name, masses,
+    x: masses.reduce((n,m) => n + m.x, 0) / masses.length,
+    y: masses.reduce((n,m) => n + m.y, 0) / masses.length,
+    count: state.rankings.filter(r => (r.continent || inferContinent(r)) === name).length,
+    color: colorFor(name)
+  }));
+}
 function makeLandmass(name, autoKey, x, y, manual = false) {
   return { id: "land-" + state.nextLandmassId++, name, autoKey, x, y, color: colorFor(autoKey || name), manual, createdAt: state.nextLandmassId };
 }
@@ -126,7 +163,8 @@ function arrangeAutomaticLandmasses() {
   });
 }
 function ensureLandmassForRanking(ranking) {
-  if (ranking.landmassId && state.landmasses.some(m => m.id === ranking.landmassId)) return;
+  if (ranking.landmassId && state.landmasses.some(m => m.id === ranking.landmassId) && state.landmasses.find(m => m.id === ranking.landmassId).name === primaryTag(ranking)) return;
+  ranking.landmassId = null;
   const tag = primaryTag(ranking), autoKey = key(tag);
   let mass = state.landmasses.find(m => !m.manual && m.autoKey === autoKey);
   if (!mass) {
@@ -137,6 +175,7 @@ function ensureLandmassForRanking(ranking) {
   ranking.landmassId = mass.id;
 }
 function rebuildMembership() {
+  state.rankings.forEach(migrateRanking);
   state.rankings.forEach(ensureLandmassForRanking);
   const used = new Set(state.rankings.map(r => r.landmassId));
   state.landmasses = state.landmasses.filter(m => used.has(m.id));
@@ -263,6 +302,30 @@ function drawLandmass(mass) {
   c.fillText(mass.name, cx, bounds.y - 34);
   c.fillStyle = "#7f879a"; c.font = "11px system-ui";
   c.fillText(ranks.length + (ranks.length === 1 ? " ranking" : " rankings"), cx, bounds.y - 16);
+  if (state.zoom < .58) {
+    const cities = new Map();
+    ranks.forEach(it => {
+      const city = cityName(it.ranking);
+      if (!cities.has(city)) cities.set(city, []);
+      cities.get(city).push(it);
+    });
+    const entries = [...cities.entries()];
+    const cols = Math.max(1, Math.ceil(Math.sqrt(entries.length)));
+    entries.forEach(([name, items], i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      const x = cx + (col - (Math.min(cols, entries.length) - 1) / 2) * 180;
+      const y = cy + (row - (Math.ceil(entries.length / cols) - 1) / 2) * 125;
+      const w = 148, h = 82;
+      roundRect(c, x-w/2, y-h/2, w, h, 10);
+      c.fillStyle = "#191c26"; c.fill();
+      c.strokeStyle = mass.color + "cc"; c.lineWidth = 1.4 / state.zoom; c.stroke();
+      c.fillStyle = "#f0f1f7"; c.textAlign = "center"; c.textBaseline = "middle";
+      c.font = "700 14px system-ui"; c.fillText(name, x, y - 10, w - 14);
+      c.fillStyle = "#a4aabc"; c.font = "11px system-ui";
+      c.fillText(items.length + (items.length === 1 ? " list" : " lists"), x, y + 13);
+    });
+    return;
+  }
   ranks.forEach(({ ranking: r, x, y }) => {
     const rx = mass.x + x, ry = mass.y + y;
     if (state.zoom < .58) {
@@ -281,7 +344,7 @@ function drawLandmass(mass) {
       drawThumbnail(r, rx - w / 2 + 10, ry - h / 2 + 10, 32, c);
       c.textAlign = "left"; c.textBaseline = "middle"; c.fillStyle = "#f0f1f7";
       c.font = "700 12px system-ui"; c.fillText(r.title, rx - w / 2 + 50, ry - h / 2 + 26, 140);
-      c.fillStyle = "#9da4b6"; c.font = "10px system-ui"; c.fillText(r.description || "Tier list", rx - w / 2 + 10, ry - h / 2 + 54, 180);
+      c.fillStyle = "#9da4b6"; c.font = "10px system-ui"; c.fillText("by " + (r.creator || "Guest") + " · " + cityName(r), rx - w / 2 + 10, ry - h / 2 + 54, 180);
       const labels = ["S", "A", "B", "C", "D"], colors = ["#e77979", "#e8a45f", "#e4cc70", "#79c69b", "#82b4e8"];
       labels.forEach((label, i) => {
         const yy = ry - h / 2 + 67 + i * 13;
@@ -312,6 +375,32 @@ function draw() {
   ctx.translate(rect.width / 2 + state.panX, rect.height / 2 + state.panY);
   ctx.scale(state.zoom, state.zoom);
   drawGrid();
+  if (state.zoom < .25) {
+    const tl = worldPoint(0, 0), br = worldPoint(rect.width, rect.height);
+    continentGroups().forEach(group => {
+      const unit = 1 / state.zoom;
+      if (group.x < tl.x - 1000 || group.x > br.x + 1000 || group.y < tl.y - 1000 || group.y > br.y + 1000) return;
+      const radius = Math.max(48, 27 + Math.sqrt(group.count) * 4) * unit;
+      ctx.beginPath(); ctx.ellipse(group.x, group.y, radius, radius * .72, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "#151822"; ctx.fill(); ctx.strokeStyle = group.color; ctx.lineWidth = 1.7 / state.zoom; ctx.stroke();
+      const samples = state.rankings.filter(r => (r.continent || inferContinent(r)) === group.name).slice(0, 4);
+      const thumb = 18 * unit;
+      samples.forEach((r,i) => {
+        const ang = i * Math.PI * 2 / Math.max(1,samples.length) - Math.PI/2;
+        drawThumbnail(r, group.x + Math.cos(ang)*radius*.42-thumb/2, group.y + Math.sin(ang)*radius*.42-thumb/2, thumb, ctx);
+      });
+      ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillStyle="#f2f2fa";
+      ctx.font="800 "+(13*unit)+"px system-ui"; ctx.fillText(group.name,group.x,group.y+radius*.86,220*unit);
+      ctx.fillStyle="#aeb3c4"; ctx.font=(10*unit)+"px system-ui";
+      ctx.fillText(group.masses.length+" countries · "+group.count+" lists",group.x,group.y+radius*1.12,240*unit);
+    });
+    ctx.restore();
+    zoomLabel.textContent = Math.round(state.zoom * 100) + "%";
+    countLabel.textContent = state.rankings.length + (state.rankings.length === 1 ? " ranking" : " rankings") + " · " + continentGroups().length + " continents";
+    $("#canvas-empty").hidden = state.rankings.length > 0;
+    $("#world-map").setAttribute("aria-label", state.rankings.length + " rankings across " + continentGroups().length + " continents");
+    return;
+  }
   const visible = state.landmasses.map(m => ({ mass: m, bounds: massBounds(m) }))
     .filter(({ bounds }) => {
       const tl = worldPoint(0, 0), br = worldPoint(rect.width, rect.height);
@@ -400,7 +489,7 @@ function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
     if (saved && Array.isArray(saved.rankings) && Array.isArray(saved.landmasses)) {
-      state.rankings = saved.rankings; state.landmasses = saved.landmasses;
+      state.rankings = saved.rankings; state.landmasses = saved.landmasses; state.rankings.forEach(migrateRanking);
       state.nextRankingId = saved.nextRankingId || state.rankings.length + 1;
       state.nextLandmassId = saved.nextLandmassId || state.landmasses.length + 1;
       rebuildMembership();
@@ -423,8 +512,12 @@ function openRanking(ranking) {
   draw();
   if (rankingDialog.showModal) rankingDialog.showModal();
 }
-function addRanking(title, description, tags, thumbnailUrl = "") {
-  const r = { id: String(state.nextRankingId++), title, description, tags, thumbnailUrl, landmassId: null };
+function addRanking(title, description, tags, thumbnailUrl = "", geography = {}) {
+  const r = { id: String(state.nextRankingId++), title, description, tags, thumbnailUrl,
+    continent: geography.continent || inferContinent({ tags }),
+    country: geography.country || tags[0] || "Unsorted",
+    city: geography.city || (tags.length >= 3 ? tags[2] : "General"),
+    creator: geography.creator || "Guest", landmassId: null };
   state.rankings.push(r); ensureLandmassForRanking(r);
   return r;
 }
@@ -499,13 +592,13 @@ function showSearchResults(query) {
   const q = key(query);
   suggestions.replaceChildren(); state.searchMatches = []; state.searchIndex = -1;
   if (!q) { suggestions.hidden = true; return; }
-  const matches = state.rankings.filter(r => key(r.title).includes(q) || (r.tags || []).some(t => key(t).includes(q)) || key(r.description).includes(q)).slice(0, 8);
+  const matches = state.rankings.filter(r => [r.title,r.description,r.continent,r.country,r.city,r.creator,...(r.tags || [])].some(v => key(v).includes(q))).slice(0, 8);
   state.searchMatches = matches;
   matches.forEach((r, i) => {
     const mass = state.landmasses.find(m => m.id === r.landmassId);
     const button = document.createElement("button"); button.type = "button"; button.className = "search-result";
     const title = document.createElement("strong"); title.textContent = r.title;
-    const sub = document.createElement("span"); sub.textContent = (mass ? mass.name : "Unknown landmass") + " · " + (r.tags || []).slice(0, 2).join(", ");
+    const sub = document.createElement("span"); sub.textContent = [r.continent || "Other", r.country || (mass && mass.name), r.city || "General", "by " + (r.creator || "Guest")].filter(Boolean).join(" › ");
     button.append(title, sub); button.addEventListener("click", () => chooseSearchResult(r)); suggestions.append(button);
   });
   suggestions.hidden = matches.length === 0;
@@ -599,21 +692,23 @@ rankingForm.addEventListener("submit", e => {
   const title = $("#ranking-title").value.trim(); if (!title) return;
   const description = $("#ranking-description").value.trim();
   const tags = [...new Set($("#ranking-tags").value.split(",").map(t => t.trim().replace(/^#+/, "").slice(0, 32)).filter(Boolean))].slice(0, 8);
+  const geography = { continent: $("#ranking-continent").value.trim() || "Other", country: $("#ranking-country").value.trim() || "Unsorted", city: $("#ranking-city").value.trim() || "General", creator: $("#ranking-creator").value.trim() || "Guest" };
   const thumbnailUrl = $("#ranking-thumbnail").value.trim();
   const editId = rankingForm.dataset.editId;
   if (editId) {
     const r = state.rankings.find(x => x.id === editId);
     if (r) {
       const oldMass = state.landmasses.find(m => m.id === r.landmassId);
-      const tagsChanged = key(primaryTag(r)) !== key(primaryTag({ tags }));
-      r.title = title; r.description = description; r.tags = tags; r.thumbnailUrl = $("#ranking-thumbnail").value.trim();
+      const tagsChanged = key(primaryTag(r)) !== key(geography.country);
+      r.title = title; r.description = description; r.tags = tags; r.thumbnailUrl = thumbnailUrl;
+      Object.assign(r, geography);
       if (tagsChanged && oldMass && !oldMass.manual) r.landmassId = null;
       if (!r.landmassId || !state.landmasses.some(m => m.id === r.landmassId)) ensureLandmassForRanking(r);
     }
     delete rankingForm.dataset.editId;
     changed(); $("#create-modal").close(); notify("Ranking updated. Its landmass assignment was preserved.");
   } else {
-    const r = addRanking(title, description, tags, thumbnailUrl);
+    const r = addRanking(title, description, tags, thumbnailUrl, geography);
     changed(); $("#create-modal").close(); const p = rankWorldPosition(r); flyToWorld(p.x, p.y, .92); notify("Ranking added to " + (state.landmasses.find(m => m.id === r.landmassId)?.name || "the map") + ".");
   }
 });
@@ -678,7 +773,7 @@ searchInput.addEventListener("keydown", e => {
   if (e.key === "Enter") {
     e.preventDefault();
     const q = key(searchInput.value);
-    const rank = state.rankings.find(r => key(r.title) === q) || state.rankings.find(r => key(r.title).includes(q));
+    const rank = state.rankings.find(r => [r.title,r.creator,r.city,r.country,r.continent].some(v => key(v) === q)) || state.rankings.find(r => [r.title,r.creator,r.city,r.country,r.continent].some(v => key(v).includes(q)));
     const mass = state.landmasses.find(m => key(m.name) === q) || state.landmasses.find(m => key(m.name).includes(q));
     if (rank) chooseSearchResult(rank); else if (mass) chooseLandmassSearch(mass); else if (state.searchMatches[0]) chooseSearchResult(state.searchMatches[0]);
     else notify("No ranking or landmass matches that search.");
