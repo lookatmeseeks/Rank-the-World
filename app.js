@@ -394,7 +394,7 @@ function drawLandmass(mass) {
   c.lineWidth = selected ? 2.2 / state.zoom : 1.3 / state.zoom;
   c.strokeStyle = selected ? "#c9bcff" : mass.color + "9a"; c.stroke();
   const ranks = state.viewLevel === "list" && state.activeCategory ? bounds.items.filter(it => key(cityName(it.ranking)) === key(state.activeCategory)) : bounds.items, cx = mass.x, cy = mass.y;
-  if (state.viewLevel === "world") {
+  if (state.viewLevel === "world" || (state.viewLevel === "continent" && state.zoom < .25)) {
     const unit = 1 / state.zoom;
     c.fillStyle = "#151822"; c.beginPath(); c.ellipse(cx, cy, 34 * unit, 26 * unit, 0, 0, Math.PI * 2); c.fill();
     c.strokeStyle = mass.color; c.lineWidth = 1.5 / state.zoom; c.stroke();
@@ -413,7 +413,7 @@ function drawLandmass(mass) {
   c.fillText(mass.name, cx, bounds.y - 34);
   c.fillStyle = "#7f879a"; c.font = "11px system-ui";
   c.fillText(ranks.length + (ranks.length === 1 ? " ranking" : " rankings"), cx, bounds.y - 16);
-  if (state.viewLevel === "continent" || state.viewLevel === "country") {
+  if ((state.viewLevel === "continent" || state.viewLevel === "country") && state.zoom < .58) {
     const cities = new Map();
     ranks.forEach(it => {
       const city = cityName(it.ranking);
