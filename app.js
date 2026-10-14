@@ -207,7 +207,27 @@ function rankLocalPosition(ranking, indexInMass, count) {
 }
 function groupsForMass(mass) {
   const ranks = state.rankings.filter(r => r.landmassId === mass.id);
-  return ranks.map((r, i) => ({ ranking: r, ...rankLocalPosition(r, i, ranks.length) }));
+  const groups = new Map();
+  ranks.forEach(r => {
+    const name = cityName(r);
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(r);
+  });
+  const entries = [...groups.entries()];
+  if (!entries.length) return [];
+  const cols = Math.max(1, Math.ceil(Math.sqrt(entries.length)));
+  const blockW = 850, blockH = 700;
+  return entries.flatMap(([name, members], groupIndex) => {
+    const col = groupIndex % cols, row = Math.floor(groupIndex / cols);
+    const cityX = (col - (Math.min(cols, entries.length) - 1) / 2) * blockW;
+    const cityY = (row - (Math.ceil(entries.length / cols) - 1) / 2) * blockH;
+    return members.map((ranking, index) => ({
+      ranking, city: name, cityX, cityY,
+      ...rankLocalPosition(ranking, index, members.length),
+      x: cityX + rankLocalPosition(ranking, index, members.length).x,
+      y: cityY + rankLocalPosition(ranking, index, members.length).y
+    }));
+  });
 }
 function massBounds(mass) {
   const items = groupsForMass(mass);
@@ -327,11 +347,9 @@ function drawLandmass(mass) {
       cities.get(city).push(it);
     });
     const entries = [...cities.entries()];
-    const cols = Math.max(1, Math.ceil(Math.sqrt(entries.length)));
-    entries.forEach(([name, items], i) => {
-      const col = i % cols, row = Math.floor(i / cols);
-      const x = cx + (col - (Math.min(cols, entries.length) - 1) / 2) * 180;
-      const y = cy + (row - (Math.ceil(entries.length / cols) - 1) / 2) * 125;
+    entries.forEach(([name, items]) => {
+      const x = cx + items.reduce((sum, item) => sum + item.x, 0) / items.length;
+      const y = cy + items.reduce((sum, item) => sum + item.y, 0) / items.length;
       const w = 148, h = 82;
       roundRect(c, x-w/2, y-h/2, w, h, 10);
       c.fillStyle = "#191c26"; c.fill();
