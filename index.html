@@ -15,7 +15,7 @@
   <div class="toolbar-center"><span class="live-dot"></span><span>World map</span><span class="toolbar-divider"></span><span id="ranking-count">0 rankings · 0 landmasses</span></div>
   <div class="toolbar-actions">
     <div class="search-wrap">
-      <input id="map-search" type="search" autocomplete="off" placeholder="Search rankings or landmasses…" aria-label="Search rankings or landmasses">
+      <input id="map-search" type="search" autocomplete="off" placeholder="Search titles, subjects, series, categories, or creators…" aria-label="Search rankings or landmasses">
       <div id="search-results" class="search-results" hidden></div>
     </div>
     <button class="tool-button" id="add-test-lists" type="button" title="Add a starter set of sample rankings">＋ Test lists</button>
@@ -34,9 +34,9 @@
       <div class="empty-actions"><button class="primary-button" id="empty-create" type="button">＋ Create ranking</button><button class="secondary-button" id="empty-test" type="button">＋ Load test world</button></div>
     </div>
     <aside class="landmass-panel" id="landmass-panel" hidden>
-      <div class="panel-heading"><div><span class="eyebrow">SELECTED REGION</span><h2>Landmass</h2></div><button class="icon-button" id="close-landmass" type="button" aria-label="Close landmass panel">×</button></div>
+      <div class="panel-heading"><div><span class="eyebrow">SELECTED REGION</span><h2>Country</h2></div><button class="icon-button" id="close-landmass" type="button" aria-label="Close landmass panel">×</button></div>
       <form id="landmass-form">
-        <label for="landmass-name">Landmass name</label>
+        <label for="landmass-name">Country / series name</label>
         <input id="landmass-name" maxlength="80" required>
         <div class="panel-meta" id="landmass-size"></div>
         <button class="primary-button full-button" type="submit">Save name</button>
@@ -53,7 +53,7 @@
       </div>
     </aside>
     <div class="zoom-controls"><button id="zoom-in" type="button" aria-label="Zoom in">＋</button><span id="zoom-level">16%</span><button id="zoom-out" type="button" aria-label="Zoom out">−</button><button id="reset-view" type="button" aria-label="Fit world" title="Fit world">⌖</button></div>
-    <div class="map-legend"><span class="legend-swatch"></span> Auto-generated landmass <span class="legend-dot"></span> Selected</div>
+    <div class="map-legend"><span class="legend-swatch"></span> Country / series <span class="legend-dot"></span> Selected</div>
   </div>
 </main>
 <dialog class="modal" id="create-modal" aria-labelledby="modal-title">
@@ -61,9 +61,14 @@
     <div class="modal-heading"><div><p class="eyebrow">ADD TO YOUR WORLD</p><h2 id="modal-title">Create a ranking</h2></div><button class="icon-button" type="button" id="close-modal" aria-label="Close">×</button></div>
     <label for="ranking-title">Ranking name</label><input id="ranking-title" name="title" maxlength="100" placeholder="e.g. Best anime openings" required>
     <label for="ranking-description">Description <span class="optional">(optional)</span></label><textarea id="ranking-description" name="description" rows="2" maxlength="300" placeholder="What is this ranking about?"></textarea>
-    <label for="ranking-tags">Tags <span class="optional">· first tag is the main topic</span></label><input id="ranking-tags" name="tags" maxlength="200" placeholder="e.g. Naruto, Anime, Characters">
+    <label for="ranking-continent">Continent · broad subject</label><input id="ranking-continent" maxlength="50" list="continent-options" placeholder="e.g. Anime, Games, Movies" required>
+    <datalist id="continent-options"><option>Anime</option><option>Games</option><option>Movies</option><option>Manga</option><option>Music</option><option>Books</option><option>Fantasy</option><option>Sci-Fi</option><option>Comics</option><option>Tabletop RPG</option><option>Other</option></datalist>
+    <label for="ranking-country">Country · series or franchise</label><input id="ranking-country" maxlength="80" placeholder="e.g. Naruto, One Piece" required>
+    <label for="ranking-city">City · list category</label><input id="ranking-city" maxlength="80" placeholder="e.g. Characters, Openings" required>
+    <label for="ranking-creator">Creator username</label><input id="ranking-creator" maxlength="40" placeholder="e.g. Tobias" required>
+    <label for="ranking-tags">Search tags <span class="optional">· optional</span></label><input id="ranking-tags" name="tags" maxlength="200" placeholder="e.g. shonen, heroes, soundtrack">
     <label for="ranking-thumbnail">Thumbnail image URL <span class="optional">· optional</span></label><input id="ranking-thumbnail" name="thumbnail" type="url" placeholder="https://…">
-    <p class="field-hint">The thumbnail is used at world and regional zoom levels. If left empty, the map uses a generated placeholder. The first tag determines the default landmass.</p>
+    <p class="field-hint">The thumbnail is used at world and regional zoom levels. If left empty, the map uses a generated placeholder. Continent → country → city → creator lists. The title is separate from location.</p>
     <div class="modal-note">This prototype saves its map in this browser using local storage. It is not yet a shared database.</div>
     <div class="ranking-landmass-field" id="ranking-landmass-field" hidden><label for="ranking-landmass">Landmass assignment</label><select id="ranking-landmass"></select></div>
     <div class="modal-actions"><button class="secondary-button" type="button" id="cancel-modal">Cancel</button><button class="primary-button" type="submit">Create ranking</button></div>
